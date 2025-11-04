@@ -13,8 +13,8 @@ from datetime import datetime
 from pathlib import Path
 
 from dataset import CocoDataset
-from ..layer import DeCap
-from ..config import Config
+from decap.layer import DeCap
+from decap.config import Config
 
 def get_time_now() -> str:
 	now = datetime.now()

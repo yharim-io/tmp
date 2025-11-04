@@ -2,24 +2,25 @@ import torch
 from torch import Tensor
 from torch.nn import functional as F
 import clip
+from clip.model import CLIP
 from clip.simple_tokenizer import SimpleTokenizer
+from torchvision.transforms import Compose
 from tqdm import tqdm
 from pathlib import Path
 from PIL import Image
 
 from dataset import CocoDataset
-from ..layer import DeCap
-from ..config import Config
+from decap.layer import DeCap
+from decap.config import Config
 
 device = torch.device('cuda')
 
-print('[clip] loading...')
-clip_model, preprocess = clip.load('ViT-B/32', device=device, jit=False)
-Tokenizer = SimpleTokenizer()
-print('[clip] done')
-
 @torch.no_grad
-def get_text_features(dataset: CocoDataset, batch_size: int = 100) -> Tensor:
+def get_text_features(
+	clip_model: CLIP,
+	dataset: CocoDataset,
+	batch_size: int = 100
+) -> Tensor:
 	
 	clip_model.eval()
 	text_features = []
@@ -36,7 +37,11 @@ def get_text_features(dataset: CocoDataset, batch_size: int = 100) -> Tensor:
 	return text_features
 
 @torch.no_grad
-def decode(decap_model: DeCap, clip_features: Tensor) -> str:
+def decode(
+	tokenizer: SimpleTokenizer,
+	decap_model: DeCap,
+	clip_features: Tensor
+) -> str:
 	
 	decap_model.eval()
 	emb_cat = decap_model.mlp(clip_features).reshape(1, 1, -1)
@@ -63,7 +68,7 @@ def decode(decap_model: DeCap, clip_features: Tensor) -> str:
 	
 	try:
 		output_list = list(tokens.squeeze().cpu().numpy())
-		output = Tokenizer.decode(output_list)
+		output = tokenizer.decode(output_list)
 		output = output.replace('<|startoftext|>','').replace('<|endoftext|>','')
 	except:
 		output = 'error'
@@ -71,7 +76,14 @@ def decode(decap_model: DeCap, clip_features: Tensor) -> str:
 	return output
 
 @torch.no_grad
-def image_to_text(decap_model: DeCap, text_features: Tensor, image_path: Path) -> str:
+def image_to_text(
+	clip_model: CLIP,
+	preprocess: Compose,
+	tokenizer: SimpleTokenizer,
+	decap_model: DeCap,
+	text_features: Tensor,
+	image_path: Path
+) -> str:
 	image = Image.open(image_path)
 	image = preprocess(image).unsqueeze(0).to(device)
 	image_feature: Tensor = clip_model.encode_image(image).float()
@@ -80,14 +92,5 @@ def image_to_text(decap_model: DeCap, text_features: Tensor, image_path: Path) -
 	sim = (sim * 100).softmax(dim=-1)
 	prefix_embedding = sim @ text_features.float()
 	prefix_embedding /= prefix_embedding.norm(dim=-1, keepdim=True)
-	text = decode(decap_model, prefix_embedding)
+	text = decode(tokenizer, decap_model, prefix_embedding)
 	return text
-
-# @torch.no_grad
-# def image_to_text_without_filtering(decap_model: DeCap, image_path: Path) -> str:
-# 	image = Image.open(image_path)
-# 	image = preprocess(image).unsqueeze(0).to(device)
-# 	image_feature: Tensor = clip_model.encode_image(image).float()
-# 	image_feature /= image_feature.norm(dim=-1, keepdim=True)
-# 	text = decode(decap_model, image_feature)
-# 	return text

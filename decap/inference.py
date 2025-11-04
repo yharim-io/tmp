@@ -1,4 +1,6 @@
 import torch
+import clip
+from clip.simple_tokenizer import SimpleTokenizer
 
 from decap.config import Config
 from dataset import CocoDataset
@@ -14,6 +16,12 @@ else:
 	text_features = get_text_features(dataset)
 	torch.save(text_features, feat_file)
 
+print('[clip] loading...')
+device = torch.device('cuda')
+clip_model, preprocess = clip.load('ViT-B/32', device=device, jit=False)
+tokenizer = SimpleTokenizer()
+print('[clip] done')
+
 decap_model = DeCap()
 decap_model.load_state_dict(
 	torch.load(
@@ -28,6 +36,9 @@ decap_model = decap_model.to('cuda')
 for i in range(1, 9):
 	
 	text = image_to_text(
+		clip_model=clip_model,
+		preprocess=preprocess,
+		tokenizer=tokenizer,
 		decap_model=decap_model,
 		text_features=text_features,
 		image_path=Config.path.root/f'data/images/{i}.jpg'
