@@ -10,7 +10,7 @@ from pathlib import Path
 from PIL import Image
 
 from dataset import CocoDataset
-from decap.layer import DeCap
+from decap.layer.decap import DeCap
 from decap.config import Config
 
 @torch.no_grad

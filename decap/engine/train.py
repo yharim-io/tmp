@@ -13,7 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from dataset import CocoDataset
-from decap.layer import DeCap
+from decap.layer.decap import DeCap
 from decap.config import Config
 
 def get_time_now() -> str:
@@ -56,6 +56,7 @@ def train(
 	torch.cuda.set_device(device)
 	dist.init_process_group(backend='nccl', init_method='env://')
 	torch.cuda.manual_seed_all(42)
+	torch.manual_seed(42)
 	
 	decap_model = DeCap()
 	
@@ -71,13 +72,13 @@ def train(
 	clip_model, preprocess = clip.load(Config.model.clip_model_type, device=device, jit=False)
 	clip_model.eval()
 	
-	loss_ce = torch.nn.CrossEntropyLoss(ignore_index=0, label_smoothing=0.1)
 	decap_model.to(device)
 	decap_model = DDP(decap_model, device_ids=[Config.rank], output_device=Config.rank)
 	
 	optimizer = AdamW(decap_model.parameters(), lr=lr)
 	
 	sampler = DistributedSampler(dataset)
+	
 	dataloader = DataLoader(
 		dataset=dataset,
 		sampler=sampler,
@@ -90,6 +91,8 @@ def train(
 		num_warmup_steps=Config.policy.warmup_steps,
 		num_training_steps=epochs * len(dataloader)
 	)
+	
+	loss_ce = torch.nn.CrossEntropyLoss(ignore_index=0, label_smoothing=0.1)
 	
 	for epoch in range(start_epoch, epochs + start_epoch):
 		

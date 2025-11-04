@@ -2,7 +2,7 @@ from torch import nn, Tensor
 from transformers import GPT2Config, GPT2LMHeadModel
 import pickle
 
-from ..config import Config
+from decap.config import Config
 
 class GPT2(nn.Module):
 	"""

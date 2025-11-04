@@ -4,8 +4,8 @@ from clip.simple_tokenizer import SimpleTokenizer
 
 from decap.config import Config
 from dataset import CocoDataset
-from decap.layer import DeCap
-from decap.engine import get_text_features, image_to_text
+from decap.layer.decap import DeCap
+from decap.engine.decode import get_text_features, image_to_text
 
 feat_file = Config.path.root/'data/decap/coco/text_features.pt'
 

@@ -1,9 +1,9 @@
 import torch
 from torch import nn, Tensor
 
-from .gpt2 import GPT2
-from .mlp import MLP
-from ..config import Config
+from decap.layer.gpt2 import GPT2
+from decap.layer.mlp import MLP
+from decap.config import Config
 
 class DeCap(nn.Module):
 	
