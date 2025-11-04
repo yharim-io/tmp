@@ -1,5 +1,5 @@
 from dataset import CocoDataset
-from decap.engine import train
+from decap.engine.train import train
 from decap.config import Config
 
 dataset = CocoDataset(Config.path.coco_train_data)
