@@ -13,8 +13,6 @@ from dataset import CocoDataset
 from decap.layer import DeCap
 from decap.config import Config
 
-device = torch.device('cuda')
-
 @torch.no_grad
 def get_text_features(
 	clip_model: CLIP,
@@ -27,7 +25,7 @@ def get_text_features(
 	
 	for i in tqdm(range(len(dataset) // batch_size + 1)):
 		texts = dataset.captions[i * batch_size : (i + 1) * batch_size]
-		token_ids = clip.tokenize(texts).to(device)
+		token_ids = clip.tokenize(texts).to('cuda')
 		text_feature = clip_model.encode_text(token_ids)
 		text_features.append(text_feature)
 	
@@ -85,7 +83,7 @@ def image_to_text(
 	image_path: Path
 ) -> str:
 	image = Image.open(image_path)
-	image = preprocess(image).unsqueeze(0).to(device)
+	image = preprocess(image).unsqueeze(0).to('cuda')
 	image_feature: Tensor = clip_model.encode_image(image).float()
 	image_feature /= image_feature.norm(dim=-1, keepdim=True)
 	sim = image_feature @ text_features.T.float()
