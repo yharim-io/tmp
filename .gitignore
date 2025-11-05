@@ -1,8 +1,10 @@
-.src/
-.lab/
-data/
-data
-clear.sh
+*
 
-*.pyc
+!.gitignore
+
+!clipcap/
+!decap/
+!utils/
+
 __pycache__/
+*.pyc
