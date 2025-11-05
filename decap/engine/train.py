@@ -1,18 +1,17 @@
 import torch
 import torch.distributed as dist
 from torch import Tensor
-from torch.utils.data import DataLoader
+from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 import clip
-import sys, os
+import os
 from tqdm import tqdm
 from datetime import datetime
 from pathlib import Path
 
-from dataset import CocoDataset
 from decap.layer.decap import DeCap
 from decap.config import Cfg
 
@@ -35,7 +34,7 @@ def pad_tensor(tensor: Tensor, max_len: int, dim: int) -> Tensor:
 	return tensor
 
 def train(
-	dataset: CocoDataset,
+	dataset: Dataset,
 	output_dir: Path,
 	epochs: int = 10,
 	start_epoch: int = 0,

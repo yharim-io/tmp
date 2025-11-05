@@ -3,7 +3,7 @@ import clip
 from clip.simple_tokenizer import SimpleTokenizer
 
 from decap.config import Cfg
-from dataset import CocoDataset
+from utils.coco import CocoDataset
 from decap.layer.decap import DeCap
 from decap.engine.decode import get_text_features, image_to_text
 

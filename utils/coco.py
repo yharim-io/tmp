@@ -11,10 +11,8 @@ class CocoDataset(Dataset):
 	def __init__(
 		self,
 		train_data: Path | None = None,
-		cache_path: Path | None = None,
-		captions: list[str] | None = None,
+		cache_path: Path | None = None
 	):
-		
 		self.captions: list[str] = []
 		
 		if cache_path is not None and cache_path.exists():
@@ -23,9 +21,6 @@ class CocoDataset(Dataset):
 				self.captions = cache_data['captions']
 				self.token_ids_77s = cache_data['token_ids_77s']
 			return
-		
-		elif captions is not None:
-			self.captions = captions
 			
 		elif train_data is not None:
 			with open(train_data, 'r') as f:
@@ -34,9 +29,11 @@ class CocoDataset(Dataset):
 			self.captions = df['caption'].tolist()
 			
 		else:
-			raise ValueError('one of train_data and captions is needed.')
+			raise ValueError('one of train_data and cache_path is needed.')
 		
+		print('[clip] tokenizing...')
 		self.token_ids_77s = clip.tokenize(self.captions).long()
+		print('[clip] tokenizing done')
 		
 		if cache_path is not None:
 			cache_path.parent.mkdir(parents=True, exist_ok=True)

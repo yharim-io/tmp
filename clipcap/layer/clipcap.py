@@ -51,8 +51,7 @@ class ClipCaptionModel(nn.Module):
 		self,
 		tokens: Tensor,
 		prefix: Tensor, 
-		mask: Tensor | None = None,
-		labels: Tensor | None = None
+		mask: Tensor | None = None
 	) -> Tensor:
 		
 		prefix_projections = self.clip_project(prefix).view(-1, self.prefix_length, self.gpt_embedding_size)

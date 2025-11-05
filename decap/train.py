@@ -1,10 +1,10 @@
-from dataset import CocoDataset
+from utils.coco import CocoDataset
 from decap.engine.train import train
 from decap.config import Cfg
 
 dataset = CocoDataset(
 	train_data = Cfg.coco_train_data,
-	cache_path = Cfg.coco_cache
+	cache_path = Cfg.coco_train_cache
 )
 
 decap_model = train(
