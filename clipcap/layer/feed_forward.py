@@ -7,11 +7,11 @@ class TransformerFeedForward(nn.Module):
 		self,
 		in_dim: int,
 		h_dim: int,
-		out_d: int | None,
+		out_d: int | None = None,
 		act = F.relu,
 		dropout: float = 0.
 	):
-		super.__init__()
+		super().__init__()
 		out_d = out_d if out_d is not None else in_dim
 		self.fc1 = nn.Linear(in_dim, h_dim)
 		self.act = act

@@ -13,6 +13,7 @@ class TransformerMapper(nn.Module):
 		clip_length: int,
 		num_layers: int = 8
 	):
+		super().__init__()
 		self.clip_length = clip_length
 		self.transformer = TransformerStack(dim_emb, 8, num_layers)
 		self.linear = nn.Linear(dim_clip, clip_length * dim_emb)

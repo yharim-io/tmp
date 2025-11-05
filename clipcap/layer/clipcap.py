@@ -13,21 +13,19 @@ class MappingType(Enum):
 
 class ClipCaptionModel(nn.Module):
 
-	def __init__(
-		self,
-		prefix_length: int,
-		clip_length: int | None = None,
-		prefix_size: int = 512,
-		num_layers: int = 8,
-		mapping_type: MappingType = MappingType.MLP
-	):
+	def __init__(self, mapping_type: MappingType = MappingType.MLP):
 		super().__init__()
+		
+		prefix_length = Cfg.prefix_length
+		clip_length = Cfg.prefix_length
+		prefix_size = Cfg.clip_dim
+		num_layers = Cfg.num_layers
 		
 		self.gpt = GPT2()
 		self.gpt_embedding_size = self.gpt.emb_size
 		
 		self.prefix_length = prefix_length
-		clip_length = clip_length if clip_length is not None else prefix_length
+		# clip_length = clip_length if clip_length is not None else prefix_length
 		
 		if mapping_type == MappingType.MLP:
 			self.clip_project = MLP(
@@ -69,7 +67,6 @@ class ClipCaptionModel(nn.Module):
 		logits = self.gpt.forward_embeds(embedding_cat)
 				
 		return logits
-
 
 class ClipCaptionPrefix(ClipCaptionModel):
 

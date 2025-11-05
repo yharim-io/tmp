@@ -19,16 +19,10 @@ tokenizer = SimpleTokenizer()
 print('[clip] done')
 
 print('[clipcap] loading...')
-clipcap_model = ClipCaptionModel(
-	prefix_length = Cfg.prefix_length,
-	clip_length = Cfg.prefix_length,
-	prefix_size = Cfg.clip_dim,
-	num_layers = Cfg.num_layers,
-	mapping_type = MAPPING_TYPE
-)
+clipcap_model = ClipCaptionModel(mapping_type = MAPPING_TYPE)
 clipcap_model.load_state_dict(
 	torch.load(
-		Cfg.root/f'data/clipcap/{MAPPING_TYPE}/coco/010.pt',
+		Cfg.root/f'data/clipcap/{MAPPING_TYPE.value}/coco/005.pt',
 		map_location=torch.device('cpu'),
 		weights_only=True
 	)

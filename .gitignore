@@ -1,6 +1,7 @@
 .src/
 data/
 data
+clear.sh
 
 *.pyc
 __pycache__/

@@ -59,23 +59,13 @@ def train(
 	torch.manual_seed(42)
 	
 	if prefix_only:
-		clipcap_model = ClipCaptionPrefix(
-			prefix_length=Cfg.prefix_length,
-			clip_length=Cfg.prefix_length, # clip_length == prefix_length
-			prefix_size=Cfg.clip_dim,
-			num_layers=Cfg.num_layers,
-			mapping_type=mapping_type
-		)
-		if Cfg.is_master: print("Training only prefix (mapper).")
+		clipcap_model = ClipCaptionPrefix(mapping_type=mapping_type)
+		if Cfg.is_master:
+			print("Training only prefix (mapper).")
 	else:
-		clipcap_model = ClipCaptionModel(
-			prefix_length=Cfg.prefix_length,
-			clip_length=Cfg.prefix_length,
-			prefix_size=Cfg.clip_dim,
-			num_layers=Cfg.num_layers,
-			mapping_type=mapping_type
-		)
-		if Cfg.is_master: print("Training both prefix (mapper) and GPT.")
+		clipcap_model = ClipCaptionModel(mapping_type=mapping_type)
+		if Cfg.is_master:
+			print("Training both prefix (mapper) and GPT.")
 	
 	if init_weights is not None:
 		clipcap_model.load_state_dict(

@@ -12,7 +12,7 @@ dataset = CocoDataset(
 
 clipcap_model = train(
 	dataset,
-	output_dir = Cfg.root/f'data/clipcap/{MAPPING_TYPE}/coco/',
+	output_dir = Cfg.root/f'data/clipcap/{MAPPING_TYPE.value}/coco/',
 	epochs = 10,
 	start_epoch = 0,
 	mapping_type = MAPPING_TYPE

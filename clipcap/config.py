@@ -20,7 +20,7 @@ class Cfg:
 	num_layers: int = 8
 	
 	# schedule
-	factor: int = 24
+	factor: int = 16
 	batch_size: int = 40 * factor
 	learning_rate: float = 2e-5 * factor
 	warmup_steps: int = 5000 // factor
