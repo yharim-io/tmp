@@ -3,14 +3,14 @@ from torch import nn, Tensor
 
 from decap.layer.gpt2 import GPT2
 from decap.layer.mlp import MLP
-from decap.config import Config
+from decap.config import Cfg
 
 class DeCap(nn.Module):
 	
 	def __init__(self):
 		super().__init__()
 		self.gpt2 = GPT2()
-		self.mlp = MLP((Config.model.clip_dim, self.gpt2.emb_size))
+		self.mlp = MLP((Cfg.clip_dim, self.gpt2.emb_size))
 	
 	def forward(self, clip_features: Tensor, token_ids: Tensor):
 		emb_img_prompt: Tensor = self.mlp(clip_features)

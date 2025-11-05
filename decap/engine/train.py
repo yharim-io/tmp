@@ -14,15 +14,15 @@ from pathlib import Path
 
 from dataset import CocoDataset
 from decap.layer.decap import DeCap
-from decap.config import Config
+from decap.config import Cfg
 
 def get_time_now() -> str:
 	now = datetime.now()
 	return now.strftime("%Y-%m-%d_%H:%M")
 
 def pad_tensor(tensor: Tensor, max_len: int, dim: int) -> Tensor:
-	current_len = tensor.shape[dim]
-	padding = max_len - current_len
+	current_len: int = tensor.shape[dim]
+	padding: int = max_len - current_len
 
 	if padding > 0:
 		pad_shape = list(tensor.shape)
@@ -38,22 +38,20 @@ def train(
 	dataset: CocoDataset,
 	output_dir: Path,
 	log_dir: Path | None = None,
-	report_gap: int = 10,
 	epochs: int = 10,
 	start_epoch: int = 0,
 	init_weights: Path | None = None,
-):
+) -> DeCap:
 	
-	batch_size = Config.policy.batch_size
-	lr = Config.policy.learning_rate
+	batch_size = Cfg.batch_size
+	lr = Cfg.learning_rate
 	
 	os.makedirs(output_dir, exist_ok=True)
 	if log_dir is not None:
 		os.makedirs(log_dir, exist_ok=True)
 		log_file = log_dir / get_time_now()
 	
-	device = torch.device(f'cuda:{Config.rank}')
-	torch.cuda.set_device(device)
+	torch.cuda.set_device(Cfg.device)
 	dist.init_process_group(backend='nccl', init_method='env://')
 	torch.cuda.manual_seed_all(42)
 	torch.manual_seed(42)
@@ -69,11 +67,15 @@ def train(
 			)
 		)
 	
-	clip_model, preprocess = clip.load(Config.model.clip_model_type, device=device, jit=False)
+	clip_model, preprocess = clip.load(Cfg.clip_model_type, device=Cfg.device, jit=False)
 	clip_model.eval()
 	
-	decap_model.to(device)
-	decap_model = DDP(decap_model, device_ids=[Config.rank], output_device=Config.rank)
+	decap_model.to(Cfg.device)
+	decap_model = DDP(
+		module=decap_model,
+		device_ids=[Cfg.rank],
+		output_device=Cfg.rank
+	)
 	
 	optimizer = AdamW(decap_model.parameters(), lr=lr)
 	
@@ -83,12 +85,14 @@ def train(
 		dataset=dataset,
 		sampler=sampler,
 		batch_size=batch_size,
-		drop_last=True
+		drop_last=True,
+		num_workers=8,
+		pin_memory=True
 	)
 	
 	scheduler = get_linear_schedule_with_warmup(
 		optimizer,
-		num_warmup_steps=Config.policy.warmup_steps,
+		num_warmup_steps=Cfg.warmup_steps,
 		num_training_steps=epochs * len(dataloader)
 	)
 	
@@ -96,26 +100,22 @@ def train(
 	
 	for epoch in range(start_epoch, epochs + start_epoch):
 		
-		loss_token_save, ac_token_save = 0, 0
-		
-		sys.stdout.flush()
-		
-		if Config.is_master:
-			print(f">>> Training epoch {epoch}")
-			progress = tqdm(total=len(dataloader)//report_gap)
+		if Cfg.is_master:
+			print(f">>> Training epoch {epoch}", flush=True)
+			progress = tqdm(total = len(dataloader))
 		
 		dist.barrier()
 		
-		for idx, caption in enumerate(dataloader):
+		for token_ids_77_batch in dataloader:
 			
-			token_ids_77 = clip.tokenize(caption).clone().detach().long().to(device)
+			token_ids_77 = token_ids_77_batch.to(Cfg.device, non_blocking=True)
 			
 			with torch.no_grad():
-				feature_text = clip_model.encode_text(token_ids_77)
-				feature_text /= feature_text.norm(dim=-1, keepdim=True)
+				clip_feature = clip_model.encode_text(token_ids_77)
+				clip_feature /= clip_feature.norm(dim=-1, keepdim=True)
 			
-			token_ids = pad_tensor(token_ids_77, Config.model.max_seq_length, 1).to(device)
-			logits = decap_model(feature_text.float(), token_ids)
+			token_ids = pad_tensor(token_ids_77, Cfg.max_seq_length, 1)
+			logits = decap_model(clip_feature.float(), token_ids)
 			logits = logits[:, : -1]
 			
 			token_ids = token_ids.flatten()
@@ -132,19 +132,14 @@ def train(
 			optimizer.step()
 			scheduler.step()
 			
-			if Config.is_master:
-				if (idx + 1) % report_gap == 0:
-					progress.set_postfix({
-						'loss_token': loss_token_save / report_gap,
-						'ac_token': ac_token_save / report_gap
-					})
-					progress.update()
-					loss_token_save, ac_token_save = 0, 0
-				else:
-					loss_token_save += loss_token.item()
-					ac_token_save += ac_token.item()
+			if Cfg.is_master:
+				progress.set_postfix({
+					'loss_token': loss_token.item(),
+					'ac_token': ac_token.item()
+				})
+				progress.update()
 			
-		if Config.is_master:
+		if Cfg.is_master:
 			if log_dir is not None:
 				with open(log_file, 'a+') as f:
 					f.writelines(f'epoch {epoch}: {progress.postfix}\n')

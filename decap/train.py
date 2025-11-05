@@ -1,13 +1,16 @@
 from dataset import CocoDataset
 from decap.engine.train import train
-from decap.config import Config
+from decap.config import Cfg
 
-dataset = CocoDataset(Config.path.coco_train_data)
+dataset = CocoDataset(
+	train_data=Cfg.coco_train_data,
+	cache_path=Cfg.coco_cache
+)
 
 decap_model = train(
 	dataset,
-	output_dir=Config.path.root/'data/tmp/coco/',
-	log_dir=Config.path.root/'data/tmp/coco/log/',
+	output_dir=Cfg.root/'data/tmp/coco/',
+	log_dir=Cfg.root/'data/tmp/coco/log/',
 	epochs=10,
 	start_epoch=0,
 	# init_weights=Config.path.root/'data/decap/coco/009.pt'

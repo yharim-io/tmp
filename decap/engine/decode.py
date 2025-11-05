@@ -11,7 +11,7 @@ from PIL import Image
 
 from dataset import CocoDataset
 from decap.layer.decap import DeCap
-from decap.config import Config
+from decap.config import Cfg
 
 @torch.no_grad
 def get_text_features(
@@ -59,7 +59,7 @@ def decode(
 		else:
 			tokens = torch.cat((tokens, next_token_id), dim=1)
 		
-		if next_token_id.item() == Config.model.eos_token_id:
+		if next_token_id.item() == Cfg.eos_token_id:
 			break
 		
 		emb_cat = torch.cat((emb_cat, next_token_embed), dim=1)
