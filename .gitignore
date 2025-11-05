@@ -3,8 +3,11 @@
 !.gitignore
 
 !clipcap/
+!clipcap/**
 !decap/
+!decap/**
 !utils/
+!utils/**
 
 __pycache__/
 *.pyc
