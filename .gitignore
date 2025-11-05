@@ -1,5 +1,5 @@
 .src/
-.lib/
+.lab/
 data/
 data
 clear.sh
