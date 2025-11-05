@@ -1,7 +1,6 @@
 .src/
 data/
 data
-run.dev
 
 *.pyc
 __pycache__/

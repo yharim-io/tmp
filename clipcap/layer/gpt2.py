@@ -2,7 +2,7 @@ from torch import nn, Tensor
 from transformers import GPT2Config, GPT2LMHeadModel
 import pickle
 
-from clipcap.config import Config
+from clipcap.config import Cfg
 
 class GPT2(nn.Module):
 	"""
@@ -10,10 +10,10 @@ class GPT2(nn.Module):
 	"""
 	def __init__(self):
 		super().__init__()
-		with open(Config.path.gpt2_config_path, 'rb') as f:
-			config: GPT2Config = pickle.load(f)
-		self.core = GPT2LMHeadModel(config)
-		self.emb_size = config.n_embd
+		with open(Cfg.gpt2_config_path, 'rb') as f:
+			gpt2config: GPT2Config = pickle.load(f)
+		self.core = GPT2LMHeadModel(gpt2config)
+		self.emb_size = gpt2config.n_embd
 		self.ember = self.core.get_input_embeddings()
 	
 	def forward_embeds(self, inputs_embeds: Tensor) -> Tensor:

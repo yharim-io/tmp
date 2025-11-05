@@ -21,7 +21,7 @@ class CocoDataset(Dataset):
 			with open(cache_path, 'rb') as f:
 				cache_data = pickle.load(f)
 				self.captions = cache_data['captions']
-				self.token_ids_77 = cache_data['token_ids_77s']
+				self.token_ids_77s = cache_data['token_ids_77s']
 			return
 		
 		elif captions is not None:

@@ -5,7 +5,7 @@ from enum import Enum
 from .gpt2 import GPT2
 from .mlp import MLP
 from .transformer_mapper import TransformerMapper
-from clipcap.config import Config
+from clipcap.config import Cfg
 
 class MappingType(Enum):
 	MLP = 'mlp'
@@ -47,7 +47,7 @@ class ClipCaptionModel(nn.Module):
 			)
 
 	def get_dummy_token(self, batch_size: int, device: torch.device) -> Tensor:
-		return torch.zeros(batch_size, Config.model.prefix_length, dtype=torch.int64, device=device)
+		return torch.zeros(batch_size, Cfg.prefix_length, dtype=torch.int64, device=device)
 
 	def forward(
 		self,
@@ -55,7 +55,7 @@ class ClipCaptionModel(nn.Module):
 		prefix: Tensor, 
 		mask: Tensor | None = None,
 		labels: Tensor | None = None
-	):
+	) -> Tensor:
 		
 		prefix_projections = self.clip_project(prefix).view(-1, self.prefix_length, self.gpt_embedding_size)
 		
@@ -67,12 +67,8 @@ class ClipCaptionModel(nn.Module):
 			pass
 		
 		logits = self.gpt.forward_embeds(embedding_cat)
-		
-		class ModelOutput:
-			def __init__(self, logits_tensor):
-				self.logits = logits_tensor
 				
-		return ModelOutput(logits=logits)
+		return logits
 
 
 class ClipCaptionPrefix(ClipCaptionModel):

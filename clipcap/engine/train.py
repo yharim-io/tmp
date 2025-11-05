@@ -7,20 +7,14 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 import clip
-import sys, os
+import os
 from tqdm import tqdm
 from datetime import datetime
 from pathlib import Path
-from enum import Enum
 
-# 必须从外部导入
 from dataset import CocoDataset 
-
-# 导入 clipcap 模块
-from clipcap.layer import ClipCaptionModel, ClipCaptionPrefix, MappingType
-from clipcap.config import Config
-
-# --- 辅助函数 (严格复制自 decap/engine/train.py) ---
+from clipcap.layer.clipcap import ClipCaptionModel, ClipCaptionPrefix, MappingType
+from clipcap.config import Cfg
 
 def get_time_now() -> str:
 	now = datetime.now()
@@ -40,56 +34,51 @@ def pad_tensor(tensor: Tensor, max_len: int, dim: int) -> Tensor:
 
 	return tensor
 
-# --- 主训练函数 (命名遵循 decap) ---
-
 def train(
 	dataset: CocoDataset,
 	output_dir: Path,
-	log_dir: Path | None = None,
-	report_gap: int = 10,
 	epochs: int = 10,
 	start_epoch: int = 0,
 	init_weights: Path | None = None,
 	mapping_type: MappingType = MappingType.MLP,
-	only_prefix: bool = False
+	prefix_only: bool = False
 ):
 	
-	batch_size = Config.policy.batch_size
-	lr = Config.policy.learning_rate
+	batch_size = Cfg.batch_size
+	lr = Cfg.learning_rate
+	
+	log_dir = output_dir / 'log/'
 	
 	os.makedirs(output_dir, exist_ok=True)
-	if log_dir is not None:
-		os.makedirs(log_dir, exist_ok=True)
-		log_file = log_dir / get_time_now()
+	os.makedirs(log_dir, exist_ok=True)
+	log_file = log_dir / get_time_now()
 	
-	# DDP 设置 (同 decap)
-	device = torch.device(f'cuda:{Config.rank}')
-	torch.cuda.set_device(device)
+	torch.cuda.set_device(Cfg.device)
 	dist.init_process_group(backend='nccl', init_method='env://')
 	torch.cuda.manual_seed_all(42)
+	torch.manual_seed(42)
 	
-	# --- 模型初始化 (clipcap 逻辑) ---
-	if only_prefix:
-		model = ClipCaptionPrefix(
-			prefix_length=Config.model.prefix_length,
-			clip_length=Config.model.prefix_length, # 假设 clip_length == prefix_length
-			prefix_size=Config.model.clip_dim,
-			num_layers=Config.model.num_layers,
+	if prefix_only:
+		clipcap_model = ClipCaptionPrefix(
+			prefix_length=Cfg.prefix_length,
+			clip_length=Cfg.prefix_length, # clip_length == prefix_length
+			prefix_size=Cfg.clip_dim,
+			num_layers=Cfg.num_layers,
 			mapping_type=mapping_type
 		)
-		if Config.is_master: print("Training only prefix (mapper).")
+		if Cfg.is_master: print("Training only prefix (mapper).")
 	else:
-		model = ClipCaptionModel(
-			prefix_length=Config.model.prefix_length,
-			clip_length=Config.model.prefix_length,
-			prefix_size=Config.model.clip_dim,
-			num_layers=Config.model.num_layers,
+		clipcap_model = ClipCaptionModel(
+			prefix_length=Cfg.prefix_length,
+			clip_length=Cfg.prefix_length,
+			prefix_size=Cfg.clip_dim,
+			num_layers=Cfg.num_layers,
 			mapping_type=mapping_type
 		)
-		if Config.is_master: print("Training both prefix (mapper) and GPT.")
+		if Cfg.is_master: print("Training both prefix (mapper) and GPT.")
 	
 	if init_weights is not None:
-		model.load_state_dict(
+		clipcap_model.load_state_dict(
 			torch.load(
 				init_weights,
 				map_location=torch.device('cpu'),
@@ -97,74 +86,62 @@ def train(
 			)
 		)
 	
-	# CLIP (同 decap)
-	clip_model, preprocess = clip.load(Config.model.clip_model_type, device=device, jit=False)
+	clip_model, preprocess = clip.load(Cfg.clip_model_type, device=Cfg.device, jit=False)
 	clip_model.eval()
 	
-	# Loss (同 decap)
-	loss_ce = torch.nn.CrossEntropyLoss(ignore_index=0, label_smoothing=0.1)
+	clipcap_model.to(Cfg.device)
+	clipcap_model = DDP(
+		module=clipcap_model,
+		device_ids=[Cfg.rank],
+		output_device=Cfg.rank
+	)
 	
-	model.to(device)
-	model = DDP(model, device_ids=[Config.rank], output_device=Config.rank)
+	optimizer = AdamW(clipcap_model.parameters(), lr=lr)
 	
-	# Optimizer (同 decap)
-	optimizer = AdamW(model.parameters(), lr=lr)
-	
-	# Dataloader (同 decap, 使用 CocoDataset)
 	sampler = DistributedSampler(dataset)
+	
 	dataloader = DataLoader(
 		dataset=dataset,
 		sampler=sampler,
 		batch_size=batch_size,
-		drop_last=True
+		drop_last=True,
+		num_workers=8,
+		pin_memory=True
 	)
 	
-	# Scheduler (同 decap)
 	scheduler = get_linear_schedule_with_warmup(
 		optimizer,
-		num_warmup_steps=Config.policy.warmup_steps,
+		num_warmup_steps=Cfg.warmup_steps,
 		num_training_steps=epochs * len(dataloader)
 	)
 	
-	# --- 训练循环 (严格遵循 decap 训练模式) ---
+	loss_ce = torch.nn.CrossEntropyLoss(ignore_index=0, label_smoothing=0.1)
 	
 	for epoch in range(start_epoch, epochs + start_epoch):
 		
-		loss_token_save, ac_token_save = 0, 0
-		sys.stdout.flush()
-		
-		if Config.is_master:
-			print(f">>> Training epoch {epoch}")
-			progress = tqdm(total=len(dataloader)//report_gap)
+		if Cfg.is_master:
+			print(f">>> Training epoch {epoch}", flush=True)
+			progress = tqdm(total=len(dataloader))
 		
 		dist.barrier()
 		
-		# 关键：使用 decap 的数据循环模式 (来自 CocoDataset)
-		for idx, caption in enumerate(dataloader):
+		for token_ids_77_batch in dataloader:
 			
-			# 1. 使用 clip.tokenize (decap 模式)
-			token_ids_77 = clip.tokenize(caption).clone().detach().long().to(device)
+			token_ids_77 = token_ids_77_batch.to(Cfg.device, non_blocking=True)
 			
-			# 2. 获取文本前缀 (decap 模式)
 			with torch.no_grad():
 				feature_text = clip_model.encode_text(token_ids_77)
 				feature_text /= feature_text.norm(dim=-1, keepdim=True)
 			
-			# 3. 获取目标 token (decap 模式)
-			token_ids = pad_tensor(token_ids_77, Config.model.max_seq_length, 1).to(device)
+			token_ids = pad_tensor(token_ids_77, Cfg.max_seq_length, 1)
+			logits = clipcap_model(tokens=token_ids, prefix=feature_text.float())
+			logits = logits[:, Cfg.prefix_length - 1: -1] # [B, seq_len, V]
 			
-			# 4. Forward (调用 clipcap model)
-			# model.forward(self, tokens: torch.Tensor, prefix: torch.Tensor, ...)
-			outputs = model(tokens=token_ids, prefix=feature_text.float())
-			logits = outputs.logits # 我们在 clipcap.py 中确保了 .logits 的存在
-			logits = logits[:, : -1]
+			token_ids = token_ids.flatten() # [B * seq_len]
+			logits = logits.reshape(-1, logits.shape[-1]) # [B * seq_len, V]
 			
-			# 5. 计算 Loss (decap 模式)
-			token_ids_flat = token_ids.flatten()
-			logits_flat = logits.reshape(-1, logits.shape[-1])
-			
-			loss_token = loss_ce(logits_flat, token_ids_flat)
-			ac_token = ((logits_flat.argmax(1) == token_ids_flat) * (token_ids_flat > 0)).sum() / (token_ids_flat > 0).sum()
+			loss_token = loss_ce(logits, token_ids)
+			ac_token = ((logits.argmax(1) == token_ids) * (token_ids > 0)).sum() / (token_ids > 0).sum()
 			
 			optimizer.zero_grad()
 			loss_all = loss_token
@@ -172,28 +149,20 @@ def train(
 			optimizer.step()
 			scheduler.step()
 			
-			# 日志记录 (同 decap)
-			if Config.is_master:
-				if (idx + 1) % report_gap == 0:
-					progress.set_postfix({
-						'loss_token': loss_token_save / report_gap,
-						'ac_token': ac_token_save / report_gap
-					})
-					progress.update()
-					loss_token_save, ac_token_save = 0, 0
-				else:
-					loss_token_save += loss_token.item()
-					ac_token_save += ac_token.item()
+			if Cfg.is_master:
+				progress.set_postfix({
+					'loss_token': loss_token.item(),
+					'ac_token': ac_token.item()
+				})
+				progress.update()
 		
-		# 保存 (同 decap)
-		if Config.is_master:
-			if log_dir is not None:
-				with open(log_file, 'a+') as f:
-					f.writelines(f'epoch {epoch}: {progress.postfix}\n')
+		if Cfg.is_master:
+			with open(log_file, 'a+') as f:
+				f.writelines(f'epoch {epoch}: {progress.postfix}\n')
 			progress.close()
 			torch.save(
-				model.module.state_dict(),
+				clipcap_model.module.state_dict(),
 				os.path.join(output_dir, f"{epoch:03d}.pt")
 			)
-			
-	return model
+	
+	return clipcap_model

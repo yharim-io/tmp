@@ -37,7 +37,6 @@ def pad_tensor(tensor: Tensor, max_len: int, dim: int) -> Tensor:
 def train(
 	dataset: CocoDataset,
 	output_dir: Path,
-	log_dir: Path | None = None,
 	epochs: int = 10,
 	start_epoch: int = 0,
 	init_weights: Path | None = None,
@@ -46,10 +45,11 @@ def train(
 	batch_size = Cfg.batch_size
 	lr = Cfg.learning_rate
 	
+	log_dir = output_dir / 'log/'
+	
 	os.makedirs(output_dir, exist_ok=True)
-	if log_dir is not None:
-		os.makedirs(log_dir, exist_ok=True)
-		log_file = log_dir / get_time_now()
+	os.makedirs(log_dir, exist_ok=True)
+	log_file = log_dir / get_time_now()
 	
 	torch.cuda.set_device(Cfg.device)
 	dist.init_process_group(backend='nccl', init_method='env://')
@@ -125,10 +125,8 @@ def train(
 			ac_token = ((logits.argmax(1)==token_ids) * (token_ids>0)).sum() / (token_ids>0).sum()
 			
 			optimizer.zero_grad()
-			
 			loss_all = loss_token
 			loss_all.backward()
-			
 			optimizer.step()
 			scheduler.step()
 			
@@ -140,9 +138,8 @@ def train(
 				progress.update()
 			
 		if Cfg.is_master:
-			if log_dir is not None:
-				with open(log_file, 'a+') as f:
-					f.writelines(f'epoch {epoch}: {progress.postfix}\n')
+			with open(log_file, 'a+') as f:
+				f.writelines(f'epoch {epoch}: {progress.postfix}\n')
 			progress.close()
 			torch.save(
 				decap_model.module.state_dict(),
