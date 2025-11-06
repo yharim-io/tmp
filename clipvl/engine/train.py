@@ -1,9 +1,9 @@
 from torch.utils.data import Dataset
 from pathlib import Path
 
-from clipcap.layer.clipcap import MappingType
-from clipcap.engine.train_text_only import train_text_only
-from clipcap.engine.train_text_image import train_text_image
+from clipvl.layer.clipvl import MappingType
+from clipvl.engine.train_text_only import train_text_only
+from clipvl.engine.train_text_image import train_text_image
 
 def train(
 	dataset: Dataset,

@@ -47,7 +47,7 @@ class CocoDataset(Dataset):
 	):
 		
 		if DataType.IMAGE in data_type or DataType.IMAGE_EMB in data_type:
-			assert image_path is not None, 'image_path is needed for image data'
+			assert image_path is not None, 'image data requires image_path'
 		
 		self.data_type: DataType = data_type
 		
@@ -109,14 +109,14 @@ class CocoDataset(Dataset):
 			self.images_embs = self._compute_image_embeddings(self.images, clip_model, preprocess)
 			
 			if not DataType.IMAGE in data_type:
-				self.images = []
+				self.images = None
 		
 		if DataType.TEXT_EMB in data_type:
 			
 			self.texts_embs = self._compute_text_embeddings(self.texts)
 			
 			if not DataType.TEXT in data_type:
-				self.texts = []
+				self.texts = None
 		
 		if cache_path:
 			cache_data: dict = {

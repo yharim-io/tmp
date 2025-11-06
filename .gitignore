@@ -4,6 +4,8 @@
 
 !clipcap/
 !clipcap/**
+!clipvl/
+!clipvl/**
 !decap/
 !decap/**
 !utils/

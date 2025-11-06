@@ -2,9 +2,9 @@ import torch
 import clip
 from clip.simple_tokenizer import SimpleTokenizer
 
-from clipcap.config import Cfg
-from clipcap.layer.clipcap import ClipCapModel, MappingType
-from clipcap.engine.decode import image_to_text
+from clipvl.config import Cfg
+from clipvl.layer.clipvl import ClipVLModel, MappingType
+from clipvl.engine.decode import image_to_text
 
 MAPPING_TYPE = MappingType.Transformer
 
@@ -18,18 +18,18 @@ clip_model.eval()
 tokenizer = SimpleTokenizer()
 print('[clip] loading done')
 
-print('[clipcap] loading...')
-clipcap_model = ClipCapModel(mapping_type = MAPPING_TYPE)
-clipcap_model.load_state_dict(
+print('[clipvl] loading...')
+clipvl_model = ClipVLModel(mapping_type = MAPPING_TYPE)
+clipvl_model.load_state_dict(
 	torch.load(
-		Cfg.root/f'data/clipcap/text_image/{MAPPING_TYPE.value}/coco/000.pt',
+		Cfg.root/f'data/clipvl/text_image/{MAPPING_TYPE.value}/coco/000.pt',
 		map_location=torch.device('cpu'),
 		weights_only=True
 	)
 )
-clipcap_model = clipcap_model.to('cuda')
-clipcap_model.eval()
-print('[clipcap] loading done')
+clipvl_model = clipvl_model.to('cuda')
+clipvl_model.eval()
+print('[clipvl] loading done')
 
 for i in range(1, 9):
 
@@ -37,7 +37,7 @@ for i in range(1, 9):
 		clip_model = clip_model,
 		preprocess = preprocess,
 		tokenizer = tokenizer,
-		clipcap_model = clipcap_model,
+		clipvl_model = clipvl_model,
 		image_path = Cfg.root/f'data/example/{i}.jpg'
 	)
 

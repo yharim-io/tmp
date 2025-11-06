@@ -1,7 +1,7 @@
 from utils.coco import CocoDataset, DataType
-from clipcap.layer.clipcap import MappingType
-from clipcap.engine.train import train
-from clipcap.config import Cfg
+from clipvl.layer.clipvl import MappingType
+from clipvl.engine.train import train
+from clipvl.config import Cfg
 
 MAPPING_TYPE = MappingType.Transformer
 
@@ -12,12 +12,12 @@ dataset = CocoDataset(
 	data_type = DataType.TEXT_EMB | DataType.IMAGE_EMB
 )
 
-clipcap_model = train(
+clipvl_model = train(
 	dataset,
-	output_dir = Cfg.root/f'data/clipcap/text_image/{MAPPING_TYPE.value}/coco/',
+	output_dir = Cfg.root/f'data/clipvl/text_image/{MAPPING_TYPE.value}/coco/',
 	epochs = 50,
 	start_epoch = 0,
 	mapping_type = MAPPING_TYPE,
-	# init_weights = Cfg.root/f'data/clipcap/text_image/{MAPPING_TYPE.value}/coco/005.pt',
+	# init_weights = Cfg.root/f'data/clipvl/text_image/{MAPPING_TYPE.value}/coco/005.pt',
 	text_only = False
 )

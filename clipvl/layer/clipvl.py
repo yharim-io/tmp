@@ -5,13 +5,13 @@ from enum import Enum
 from .gpt2 import GPT2
 from .mlp import MLP
 from .transformer_mapper import TransformerMapper
-from clipcap.config import Cfg
+from clipvl.config import Cfg
 
 class MappingType(Enum):
 	MLP = 'mlp'
 	Transformer = 'transformer'
 
-class ClipCapModel(nn.Module):
+class ClipVLModel(nn.Module):
 
 	def __init__(self, mapping_type: MappingType = MappingType.MLP):
 		super().__init__()
@@ -67,7 +67,7 @@ class ClipCapModel(nn.Module):
 				
 		return logits
 
-class ClipCapPrefix(ClipCapModel):
+class ClipVLPrefix(ClipVLModel):
 
 	def parameters(self, recurse: bool = True):
 		return self.clip_project.parameters()
