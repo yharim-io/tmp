@@ -1,4 +1,4 @@
-from utils.coco import CocoDataset
+from utils.coco import CocoDataset, DataType
 from clipcap.layer.clipcap import MappingType
 from clipcap.engine.train import train
 from clipcap.config import Cfg
@@ -6,8 +6,10 @@ from clipcap.config import Cfg
 MAPPING_TYPE = MappingType.Transformer
 
 dataset = CocoDataset(
-	train_data = Cfg.coco_train_data,
-	cache_path = Cfg.coco_train_cache
+	annotation = Cfg.coco_train_ann,
+	image_path = Cfg.coco_train_image,
+	cache_path = Cfg.coco_train_cache,
+	data_type = DataType.TEXT_EMB
 )
 
 clipcap_model = train(

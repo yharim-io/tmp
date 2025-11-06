@@ -10,26 +10,26 @@ MAPPING_TYPE = MappingType.Transformer
 
 print('[clip] loading...')
 clip_model, preprocess = clip.load(
-	name=Cfg.clip_model_type,
+	name=Cfg.clip_pretrained_path,
 	device=torch.device('cuda'),
 	jit=False
 )
 clip_model.eval()
 tokenizer = SimpleTokenizer()
-print('[clip] done')
+print('[clip] loading done')
 
 print('[clipcap] loading...')
 clipcap_model = ClipCaptionModel(mapping_type = MAPPING_TYPE)
 clipcap_model.load_state_dict(
 	torch.load(
-		Cfg.root/f'data/clipcap/{MAPPING_TYPE.value}/coco/020.pt',
+		Cfg.root/f'data/clipcap/{MAPPING_TYPE.value}/coco/051.pt',
 		map_location=torch.device('cpu'),
 		weights_only=True
 	)
 )
 clipcap_model = clipcap_model.to('cuda')
 clipcap_model.eval()
-print('[clipcap] done')
+print('[clipcap] loading done')
 
 for i in range(1, 9):
 
@@ -41,4 +41,4 @@ for i in range(1, 9):
 		image_path = Cfg.root/f'data/example/{i}.jpg'
 	)
 
-	print(f"Image {i}.jpg: {text}")
+	print(text)

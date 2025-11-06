@@ -1,6 +1,7 @@
 import torch
 from torch import Tensor
 from torch.nn import functional as F
+from torch.utils.data import Dataset
 import clip
 from clip.model import CLIP
 from clip.simple_tokenizer import SimpleTokenizer
@@ -9,22 +10,26 @@ from tqdm import tqdm
 from pathlib import Path
 from PIL import Image
 
-from dataset import CocoDataset
 from decap.layer.decap import DeCap
 from decap.config import Cfg
 
 @torch.no_grad
 def get_text_features(
 	clip_model: CLIP,
-	dataset: CocoDataset,
+	dataset: Dataset,
 	batch_size: int = 100
 ) -> Tensor:
 	
 	clip_model.eval()
 	text_features = []
 	
-	for i in tqdm(range(len(dataset) // batch_size + 1)):
-		texts = dataset.captions[i * batch_size : (i + 1) * batch_size]
+	for i in tqdm(range(len(dataset) // batch_size + 1), desc='Encodig Text Features'):
+		start_idx = i * batch_size
+		end_idx = min((i + 1) * batch_size, len(dataset))
+		texts = [
+			dataset[j]['text']
+			for j in range(start_idx, end_idx)
+		]
 		token_ids = clip.tokenize(texts).to('cuda')
 		text_feature = clip_model.encode_text(token_ids)
 		text_features.append(text_feature)
