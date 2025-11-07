@@ -130,7 +130,7 @@ class DatasetBase(Dataset):
 			if dt in remain_type:
 				pt_path = self.cache_path / f"{attr}.pt"
 				if pt_path.exists():
-					setattr(self, attr, torch.load(pt_path))
+					setattr(self, attr, torch.load(pt_path, weights_only=True))
 					remain_type ^= dt
 		
 		return remain_type
