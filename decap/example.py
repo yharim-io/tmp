@@ -3,7 +3,7 @@ import clip
 from clip.simple_tokenizer import SimpleTokenizer
 
 from decap.config import Cfg
-from utils.coco import CocoDataset, DataType
+from utils.dataset import CocoDataset, DType
 from decap.layer.decap import DeCap
 from decap.engine.decode import get_text_features, image_to_text
 
@@ -26,7 +26,9 @@ else:
 	dataset = CocoDataset(
 		annotation = Cfg.coco_val_ann,
 		cache_path = Cfg.coco_val_cache,
-		data_type = DataType.TEXT
+		data_type = DType.TEXT,
+		clip_model = clip_model,
+		preprocess = preprocess
 	)
 	text_features = get_text_features(clip_model, dataset)
 	torch.save(text_features, feat_file)

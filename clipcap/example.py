@@ -22,7 +22,7 @@ print('[clipcap] loading...')
 clipcap_model = ClipCapModel(mapping_type = MAPPING_TYPE)
 clipcap_model.load_state_dict(
 	torch.load(
-		Cfg.root/f'data/clipcap/text_image/{MAPPING_TYPE.value}/coco/000.pt',
+		Cfg.root/f'data/clipcap/text_image/{MAPPING_TYPE.value}/coco/042.pt',
 		map_location=torch.device('cpu'),
 		weights_only=True
 	)

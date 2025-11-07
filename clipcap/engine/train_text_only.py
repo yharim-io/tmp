@@ -119,11 +119,11 @@ def train_text_only(
 			text_emb = text_emb.to(Cfg.device, non_blocking=True)
 			
 			with torch.no_grad():
-				feature_text = clip_model.encode_text(text_emb)
-				feature_text /= feature_text.norm(dim=-1, keepdim=True)
+				clip_feature = clip_model.encode_text(text_emb)
+				clip_feature /= clip_feature.norm(dim=-1, keepdim=True)
 			
 			token_ids = pad_tensor(text_emb, Cfg.max_seq_length, 1)
-			logits = clipcap_model(tokens=token_ids, prefix=feature_text.float())
+			logits = clipcap_model(tokens=token_ids, prefix=clip_feature.float())
 			logits = logits[:, Cfg.prefix_length - 1: -1] # [B, seq_len, V]
 			
 			token_ids = token_ids.flatten() # [B * seq_len]

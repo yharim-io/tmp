@@ -107,14 +107,14 @@ def train_text_image(
 		
 		for item in dataloader:
 			
-			image_emb: Tensor = item['image_emb']
-			image_emb = image_emb.to(Cfg.device, non_blocking=True)
-			
 			text_emb: Tensor = item['text_emb']
 			text_emb = text_emb.to(Cfg.device, non_blocking=True)
 			
+			image_feat: Tensor = item['image_feat']
+			image_feat = image_feat.to(Cfg.device, non_blocking=True)
+			
 			with torch.no_grad():
-				clip_feature = image_emb
+				clip_feature = image_feat
 				clip_feature /= clip_feature.norm(dim=-1, keepdim=True)
 			
 			token_ids = pad_tensor(text_emb, Cfg.max_seq_length, 1)

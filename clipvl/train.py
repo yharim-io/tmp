@@ -1,4 +1,4 @@
-from utils.coco import CocoDataset, DataType
+from utils.dataset import CocoDataset, DType
 from clipvl.layer.clipvl import MappingType
 from clipvl.engine.train import train
 from clipvl.config import Cfg
@@ -9,7 +9,7 @@ dataset = CocoDataset(
 	annotation = Cfg.coco_train_ann,
 	image_path = Cfg.coco_train_image,
 	cache_path = Cfg.coco_train_cache,
-	data_type = DataType.TEXT_EMB | DataType.IMAGE_EMB
+	data_type = DType.TEXT_EMB | DType.IMAGE_FEAT
 )
 
 clipvl_model = train(
