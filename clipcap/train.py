@@ -6,10 +6,10 @@ from clipcap.config import Cfg
 MAPPING_TYPE = MappingType.MLP
 
 dataset = CocoDataset(
-	annotation = Cfg.coco_train_ann,
-	image_path = Cfg.coco_train_image,
+	annotations = Cfg.coco_train_ann,
+	images_path = Cfg.coco_train_image,
 	cache_path = Cfg.coco_train_cache,
-	data_type = DType.TEXT_EMB | DType.IMAGE_FEAT
+	dtype = DType.TEXT_EMB | DType.IMAGE_FEAT
 )
 
 clipcap_model = train(

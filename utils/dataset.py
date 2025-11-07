@@ -6,10 +6,10 @@ from clip.model import CLIP
 from torchvision.transforms import Compose
 import json
 from pathlib import Path
-import pickle
 from PIL import Image
 from tqdm import tqdm
 from enum import IntFlag
+import os
 
 from utils.config import Config
 
@@ -124,17 +124,13 @@ class DatasetBase(Dataset):
 		if self.cache_path is None:
 			return remain_type
 		
-		if not self.cache_path.exists():
-			return remain_type
-		
-		with open(self.cache_path, 'rb') as f:
-			cache_data: dict = pickle.load(f)
+		os.makedirs(self.cache_path, exist_ok=True)
 		
 		for dt, attr in TYPE_MAP.items():
-			data = cache_data.get(attr)
-			if data is not None:
-				setattr(self, attr, data)
-				if dt in remain_type:
+			if dt in remain_type:
+				pt_path = self.cache_path / f"{attr}.pt"
+				if pt_path.exists():
+					setattr(self, attr, torch.load(pt_path))
 					remain_type ^= dt
 		
 		return remain_type
@@ -144,13 +140,13 @@ class DatasetBase(Dataset):
 		if self.cache_path is None:
 			return
 		
-		cache_data: dict = {
-			attr: getattr(self, attr)
-			for _, attr in TYPE_MAP.items()
-		}
+		os.makedirs(self.cache_path, exist_ok=True)
 		
-		with open(self.cache_path, 'wb') as f:
-			pickle.dump(cache_data, f)
+		for dt, attr in TYPE_MAP.items():
+			data = getattr(self, attr)
+			if data is not None:
+				pt_path = self.cache_path / f"{attr}.pt"
+				torch.save(data, pt_path)
 	
 	@torch.no_grad()
 	def _compute_texts_embs(self, batch_size: int = 1024):
@@ -256,9 +252,18 @@ class DatasetBase(Dataset):
 	
 	def __getitem__(self, index) -> dict[str, list[str] | Tensor]:
 		item: dict = {}
-		for dt, attr in TYPE_MAP.items():
-			if dt in self.dtype:
-				item[attr] = getattr(self, attr)[index]	
+		if DType.TEXT in self.dtype:
+			item['text'] = self.texts[index]
+		if DType.TEXT_EMB in self.dtype:
+			item['text_emb'] = self.texts_embs[index]
+		if DType.TEXT_FEAT in self.dtype:
+			item['text_feat'] = self.texts_feats[index]
+		if DType.IMAGE in self.dtype:
+			item['image'] = self.images[index]
+		if DType.IMAGE_EMB in self.dtype:
+			item['image_emb'] = self.images_embs[index]
+		if DType.IMAGE_FEAT in self.dtype:
+			item['image_feat'] = self.images_feats[index]
 		return item
 
 class CocoDataset(DatasetBase):
@@ -311,11 +316,16 @@ class CocoDataset(DatasetBase):
 
 if __name__ == '__main__':
 	
+	# dataset = CocoDataset(
+	# 	annotations=Config.coco_train_ann,
+	# 	images_path=Config.coco_train_image,
+	# 	cache_path=Config.coco_train_cache,
+	# 	dtype=DType.ALL
+	# )
+	
 	dataset = CocoDataset(
-		annotations=Config.coco_train_ann,
-		images_path=Config.coco_train_image,
-		cache_path=Config.coco_train_cache,
+		annotations=Config.coco_val_ann,
+		images_path=Config.coco_val_image,
+		cache_path=Config.coco_val_cache,
 		dtype=DType.ALL
 	)
-	
-	
