@@ -3,6 +3,8 @@ from utils.config import Config as BaseConfig
 class _Model:
 	prefix_length: int = 10
 	num_layers: int = 8
+	vit_dim: int = 768
+	vit_seq_len: int = 50
 
 class _Schedule:
 	factor: int = 6

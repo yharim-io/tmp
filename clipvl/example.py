@@ -22,7 +22,7 @@ print('[clipvl] loading...')
 clipvl_model = ClipVLModel(mapping_type = MAPPING_TYPE)
 clipvl_model.load_state_dict(
 	torch.load(
-		Cfg.root/f'data/clipvl/text_image/{MAPPING_TYPE.value}/coco/000.pt',
+		Cfg.root/f'data/clipvl/text_image/{MAPPING_TYPE.value}/coco/030.pt',
 		map_location=torch.device('cpu'),
 		weights_only=True
 	)

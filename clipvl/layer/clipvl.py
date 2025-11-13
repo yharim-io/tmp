@@ -17,8 +17,8 @@ class ClipVLModel(nn.Module):
 		super().__init__()
 		
 		prefix_length = Cfg.prefix_length
-		clip_length = Cfg.prefix_length
-		prefix_size = Cfg.clip_dim
+		prefix_size = Cfg.vit_dim
+		clip_length = Cfg.vit_seq_len
 		num_layers = Cfg.num_layers
 		
 		self.gpt = GPT2()
@@ -28,21 +28,24 @@ class ClipVLModel(nn.Module):
 		# clip_length = clip_length if clip_length is not None else prefix_length
 		
 		if mapping_type == MappingType.MLP:
+			mlp_prefix_size = prefix_size * clip_length
 			self.clip_project = MLP(
 				sizes = (
-					prefix_size,
+					mlp_prefix_size,
 					(self.gpt_embedding_size * prefix_length) // 2,
 					self.gpt_embedding_size * prefix_length
 				)
 			)
 		else:
 			self.clip_project = TransformerMapper(
-				dim_clip = prefix_size,
+				dim_vit = prefix_size,
 				dim_emb = self.gpt_embedding_size,
 				prefix_length = prefix_length,
-				clip_length = clip_length,
+				vit_seq_len = clip_length,
 				num_layers = num_layers
 			)
+		
+		self.mapping_type = mapping_type
 
 	def get_dummy_token(self, batch_size: int, device: torch.device) -> Tensor:
 		return torch.zeros(batch_size, Cfg.prefix_length, dtype=torch.int64, device=device)
@@ -54,7 +57,11 @@ class ClipVLModel(nn.Module):
 		mask: Tensor | None = None
 	) -> Tensor:
 		
-		prefix_projections = self.clip_project(prefix).view(-1, self.prefix_length, self.gpt_embedding_size)
+		if self.mapping_type == MappingType.MLP:
+			prefix = prefix.flatten(1)
+			prefix_projections = self.clip_project(prefix).view(-1, self.prefix_length, self.gpt_embedding_size)
+		else:
+			prefix_projections = self.clip_project(prefix)
 		
 		embedding_text = self.gpt.embed(tokens)
 		

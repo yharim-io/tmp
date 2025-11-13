@@ -316,16 +316,16 @@ class CocoDataset(DatasetBase):
 
 if __name__ == '__main__':
 	
-	# dataset = CocoDataset(
-	# 	annotations=Config.coco_train_ann,
-	# 	images_path=Config.coco_train_image,
-	# 	cache_path=Config.coco_train_cache,
-	# 	dtype=DType.ALL
-	# )
-	
 	dataset = CocoDataset(
-		annotations=Config.coco_val_ann,
-		images_path=Config.coco_val_image,
-		cache_path=Config.coco_val_cache,
+		annotations=Config.coco_train_ann,
+		images_path=Config.coco_train_image,
+		cache_path=Config.coco_train_cache,
 		dtype=DType.ALL
 	)
+	
+	# dataset = CocoDataset(
+	# 	annotations=Config.coco_val_ann,
+	# 	images_path=Config.coco_val_image,
+	# 	cache_path=Config.coco_val_cache,
+	# 	dtype=DType.ALL
+	# )

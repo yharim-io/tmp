@@ -9,7 +9,7 @@ dataset = CocoDataset(
 	annotations = Cfg.coco_train_ann,
 	images_path = Cfg.coco_train_image,
 	cache_path = Cfg.coco_train_cache,
-	dtype = DType.TEXT_EMB | DType.IMAGE_FEAT
+	dtype = DType.TEXT_EMB | DType.IMAGE_EMB
 )
 
 clipvl_model = train(
@@ -19,5 +19,4 @@ clipvl_model = train(
 	start_epoch = 0,
 	mapping_type = MAPPING_TYPE,
 	# init_weights = Cfg.root/f'data/clipvl/text_image/{MAPPING_TYPE.value}/coco/005.pt',
-	text_only = False
 )

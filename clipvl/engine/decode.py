@@ -63,8 +63,21 @@ def image_to_text(
 	clipvl_model.eval()
 	image = Image.open(image_path)
 	image_preprocessed = preprocess(image).unsqueeze(0).to('cuda')
-	image_feature: Tensor = clip_model.encode_image(image_preprocessed).float()
-	prefix_embedding = clipvl_model.clip_project(image_feature)
-	prefix_embedding = prefix_embedding.reshape(1, Cfg.prefix_length, -1)
+	
+	captured = { 'value': None }
+	def hook_fn(module, input, output):
+		captured['value'] = output
+	
+	handle = clip_model.visual.transformer.register_forward_hook(hook_fn)
+	
+	clip_model.encode_image(image_preprocessed)
+	
+	handle.remove()
+	
+	image_emb = captured['value'].permute(1, 0, 2)
+	image_emb = clip_model.visual.ln_post(image_emb).float()
+
+	prefix_embedding = clipvl_model.clip_project(image_emb)
+	
 	text = decode(tokenizer, clipvl_model, prefix_embedding)
 	return text

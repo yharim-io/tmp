@@ -118,14 +118,13 @@ def train_text_image(
 			text_emb: Tensor = item['text_emb']
 			text_emb = text_emb.to(Cfg.device, non_blocking=True)
 			
-			image_feat: Tensor = item['image_feat']
-			image_feat = image_feat.to(Cfg.device, non_blocking=True)
+			image_emb: Tensor = item['image_emb']
+			image_emb = image_emb.to(Cfg.device, non_blocking=True)
 
-			with torch.no_grad():
-				clip_feature = image_feat
-				clip_feature /= clip_feature.norm(dim=-1, keepdim=True)
-			
+			clip_feature = image_emb
+
 			token_ids = pad_tensor(text_emb, Cfg.max_seq_length, 1)
+			
 			logits = clipvl_model(tokens=token_ids, prefix=clip_feature.float())
 			logits = logits[:, Cfg.prefix_length - 1: -1] # [B, seq_len, V]
 			
