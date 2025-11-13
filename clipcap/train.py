@@ -14,10 +14,10 @@ dataset = CocoDataset(
 
 clipcap_model = train(
 	dataset,
-	output_dir = Cfg.root/f'data/clipcap/text_image/{MAPPING_TYPE.value}/coco/',
+	output_dir = Cfg.root/f'data/clipcap/text_only/{MAPPING_TYPE.value}/coco/',
 	epochs = 50,
 	start_epoch = 0,
 	mapping_type = MAPPING_TYPE,
-	# init_weights = Cfg.root/f'data/clipcap/text_image/{MAPPING_TYPE.value}/coco/005.pt',
+	# init_weights = Cfg.root/f'data/clipcap/text_only/{MAPPING_TYPE.value}/coco/005.pt',
 	text_only = False
 )

@@ -2,6 +2,8 @@
 
 !.gitignore
 
+!zerocap/
+!zerocap/**
 !clipcap/
 !clipcap/**
 !clipvl/

@@ -17,18 +17,16 @@ def decode(
 	clipcap_model: ClipCapModel,
 	prefix_embedding: Tensor
 ) -> str:
-
 	clipcap_model.eval()
 	emb_cat = prefix_embedding
 	entry_length = Cfg.max_seq_length
-	temperature = 1.0
 	tokens = None
 	
 	for _ in range(entry_length):
 		
 		logits = clipcap_model.gpt.forward_embeds(inputs_embeds=emb_cat)
-		logits = logits[:, -1, :] / temperature
-		logits = F.softmax(logits, dim=1)
+		logits = logits[:, -1, :]
+
 		next_token_id = torch.argmax(logits, -1).unsqueeze(0)
 		
 		next_token_embed = clipcap_model.gpt.embed(next_token_id)

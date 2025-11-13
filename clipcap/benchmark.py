@@ -1,5 +1,4 @@
 import torch
-from torch import Tensor
 import clip
 from pathlib import Path
 from tqdm import tqdm
@@ -7,38 +6,22 @@ from clip.model import CLIP
 from clip.simple_tokenizer import SimpleTokenizer
 from torchvision.transforms import Compose
 
-from decap.config import Cfg
-from decap.layer.decap import DeCap
-from decap.engine.decode_batch import calc_text_features, image_to_text_batch
+from clipcap.config import Cfg
+from clipcap.layer.clipcap import ClipCapModel, MappingType
+from clipcap.engine.decode_batch import image_to_text_batch
 from utils.dataset import CocoDataset, DType
 from utils.metric import MetricEvaluator
 from utils.logger import logger
 
-DATA_SPACE = Cfg.root/'data/decap/text_only/coco'
+MAPPINT_TYPE = MappingType.Transformer
+DATA_SPACE = Cfg.root/f'data/clipcap/text_only/{MAPPINT_TYPE.value}/coco'
 MODEL_WEIGHTS = DATA_SPACE / '049.pt'
-
-def get_text_feat(feat_file: Path) -> Tensor:
-	if feat_file.exists():
-		text_features = torch.load(feat_file, weights_only=True).to(Cfg.device)
-	else:
-		ds_train = CocoDataset(
-			annotations=Cfg.coco_train_ann,
-			images_path=Cfg.coco_train_image,
-			cache_path=Cfg.coco_train_cache,
-			dtype=DType.TEXT,
-			clip_model=clip_model,
-			preprocess=preprocess
-		)
-		text_features = calc_text_features(clip_model, ds_train).to(Cfg.device)
-		torch.save(text_features, feat_file)
-	return text_features
 
 def run_model(
 	clip_model: CLIP,
 	preprocess: Compose,
 	tokenizer: SimpleTokenizer,
-	decap_model: DeCap,
-	text_features: Tensor,
+	clipcap_model: ClipCapModel,
 	cache_path: Path | None = None,
 	use_cache: bool = True,
 	batch_size: int = 512
@@ -56,7 +39,7 @@ def run_model(
 		clip_model=clip_model,
 		preprocess=preprocess
 	)
-
+	
 	ground_truth_annotations: dict = {}
 	model_predictions: dict = {}
 	
@@ -87,8 +70,7 @@ def run_model(
 			clip_model=clip_model,
 			preprocess=preprocess,
 			tokenizer=tokenizer,
-			decap_model=decap_model,
-			text_features=text_features,
+			clipcap_model=clipcap_model,
 			image_paths=batch_paths
 		)
 
@@ -112,26 +94,26 @@ if __name__ == '__main__':
 		clip_model.eval()
 		tokenizer = SimpleTokenizer()
 	
-	with logger('decap', 'loading'):
-		decap_model = DeCap().to(Cfg.device)
-		decap_model.load_state_dict(
+	with logger('clipcap', 'loading'):
+		clipcap_model = ClipCapModel(MAPPINT_TYPE)
+		clipcap_model = clipcap_model.to(Cfg.device)
+		clipcap_model.load_state_dict(
 			torch.load(
 				MODEL_WEIGHTS,
 				map_location=Cfg.device,
 				weights_only=True
 			)
 		)
-		decap_model.eval()
-		text_features = get_text_feat(DATA_SPACE/'train_text_features.pt')
+		clipcap_model.eval()
 	
-	with logger('decap', 'running'):
+	with logger('clipcap', 'running'):
 		ground_truths, predictions = run_model(
-			clip_model, preprocess, tokenizer, decap_model, text_features,
+			clip_model, preprocess, tokenizer, clipcap_model,
 			cache_path=DATA_SPACE/'run_model.pt',
 			use_cache=False
 		)
 	
-	with logger('decap', 'evaluating'):
+	with logger('clipcap', 'evaluating'):
 		metric_evaluator = MetricEvaluator(clip_model, preprocess, tokenizer)
 		scores = metric_evaluator.compute(ground_truths, predictions)
 

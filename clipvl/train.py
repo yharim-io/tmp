@@ -3,7 +3,7 @@ from clipvl.layer.clipvl import MappingType
 from clipvl.engine.train import train
 from clipvl.config import Cfg
 
-MAPPING_TYPE = MappingType.Transformer
+MAPPING_TYPE = MappingType.MLP
 
 dataset = CocoDataset(
 	annotations = Cfg.coco_train_ann,

@@ -1,10 +1,8 @@
 import torch
 from torch import Tensor
-from torch.nn import functional as F
 from clip.model import CLIP
 from clip.simple_tokenizer import SimpleTokenizer
 from torchvision.transforms import Compose
-from clip.simple_tokenizer import SimpleTokenizer
 from pathlib import Path
 from PIL import Image
 
@@ -12,70 +10,66 @@ from clipvl.config import Cfg
 from clipvl.layer.clipvl import ClipVLModel
 
 @torch.no_grad
-def decode(
+def decode_batch(
 	tokenizer: SimpleTokenizer,
 	clipvl_model: ClipVLModel,
-	prefix_embedding: Tensor
-) -> str:
-
+	prefix_embedding: Tensor,
+) -> list[str]:
 	clipvl_model.eval()
+	batch_size = prefix_embedding.shape[0]
 	emb_cat = prefix_embedding
 	entry_length = Cfg.max_seq_length
-	tokens = None
+	
+	tokens = torch.zeros((batch_size, 0), dtype=torch.long, device=prefix_embedding.device)
 	
 	for _ in range(entry_length):
-		
 		logits = clipvl_model.gpt.forward_embeds(inputs_embeds=emb_cat)
 		logits = logits[:, -1, :]
-		next_token_id = torch.argmax(logits, -1).unsqueeze(0)
+		
+		next_token_id = torch.argmax(logits, dim=-1).unsqueeze(1)
+		
+		tokens = torch.cat((tokens, next_token_id), dim=1)
 		
 		next_token_embed = clipvl_model.gpt.embed(next_token_id)
-		
-		if tokens is None:
-			tokens = next_token_id
-		else:
-			tokens = torch.cat((tokens, next_token_id), dim=1)
-		
-		if next_token_id.item() == Cfg.eos_token_id:
-			break
-		
 		emb_cat = torch.cat((emb_cat, next_token_embed), dim=1)
 	
-	try:
-		output_list = list(tokens.squeeze().cpu().numpy())
-		output = tokenizer.decode(output_list)
-		output = output.replace('<|startoftext|>','').replace('<|endoftext|>','')
-	except:
-		output = 'error'
+	output_texts = []
+	token_lists = tokens.cpu().numpy().tolist()
 	
-	return output
+	for seq in token_lists:
+		text = tokenizer.decode(seq)
+		text = text.replace('<|startoftext|>', '').split('<|endoftext|>')[0]
+		output_texts.append(text)
+		
+	return output_texts
 
 @torch.no_grad
-def image_to_text(
+def image_to_text_batch(
 	clip_model: CLIP,
 	preprocess: Compose,
 	tokenizer: SimpleTokenizer,
 	clipvl_model: ClipVLModel,
-	image_path: Path,
-) -> str:
+	image_paths: list[Path],
+) -> list[str]:
 	clipvl_model.eval()
-	image = Image.open(image_path)
-	image_preprocessed = preprocess(image).unsqueeze(0).to('cuda')
+	device = next(clipvl_model.parameters()).device
 	
-	captured = { 'value': None }
+	images = [preprocess(Image.open(p)) for p in image_paths]
+	image_tensor = torch.stack(images).to(device)
+	
+	captured = {'value': None}
 	def hook_fn(module, input, output):
 		captured['value'] = output
 	
 	handle = clip_model.visual.transformer.register_forward_hook(hook_fn)
 	
-	clip_model.encode_image(image_preprocessed)
+	clip_model.encode_image(image_tensor)
 	
 	handle.remove()
 	
 	image_emb = captured['value'].permute(1, 0, 2)
 	image_emb = clip_model.visual.ln_post(image_emb).float()
-
+	
 	prefix_embedding = clipvl_model.clip_project(image_emb)
 	
-	text = decode(tokenizer, clipvl_model, prefix_embedding)
-	return text
+	return decode_batch(tokenizer, clipvl_model, prefix_embedding)

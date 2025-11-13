@@ -49,13 +49,11 @@ def decode(
 	decap_model.eval()
 	emb_cat = decap_model.mlp(clip_features).reshape(1, 1, -1)
 	entry_length = 30
-	temperature = 1.0
 	tokens = None
 	
 	for _ in range(entry_length):
 		logits = decap_model.gpt2.forward_embeds(inputs_embeds=emb_cat)
-		logits = logits[:, -1, :] / temperature
-		logits = F.softmax(logits, dim=1)
+		logits = logits[:, -1, :]
 		next_token_id = torch.argmax(logits, -1).unsqueeze(0)
 		next_token_embed = decap_model.gpt2.embed(next_token_id)
 		
