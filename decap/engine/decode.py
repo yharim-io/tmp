@@ -14,7 +14,7 @@ from decap.layer.decap import DeCap
 from decap.config import Cfg
 
 @torch.no_grad
-def get_text_features(
+def calc_text_features(
 	clip_model: CLIP,
 	dataset: Dataset,
 	batch_size: int = 100

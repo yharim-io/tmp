@@ -106,6 +106,12 @@ class DatasetBase(Dataset):
 		if self.dtype & DType.HAS_IMAGE:
 			assert self.images is not None, 'dtype requires image data'
 	
+	def subset(self, n: int):
+		for dt, attr in TYPE_MAP.items():
+			data = getattr(self, attr)
+			if data is not None:
+				setattr(self, attr, data[:n])
+	
 	def _init_clip(self):
 		if self._clip_model is not None and self._preprocess is not None:
 			return

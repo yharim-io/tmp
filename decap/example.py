@@ -5,7 +5,7 @@ from clip.simple_tokenizer import SimpleTokenizer
 from decap.config import Cfg
 from utils.dataset import CocoDataset, DType
 from decap.layer.decap import DeCap
-from decap.engine.decode import get_text_features, image_to_text
+from decap.engine.decode import calc_text_features, image_to_text
 
 print('[clip] loading...')
 clip_model, preprocess = clip.load(
@@ -30,7 +30,7 @@ else:
 		clip_model = clip_model,
 		preprocess = preprocess
 	)
-	text_features = get_text_features(clip_model, dataset)
+	text_features = calc_text_features(clip_model, dataset)
 	torch.save(text_features, feat_file)
 	print('[decap] calculating text features done')
 
