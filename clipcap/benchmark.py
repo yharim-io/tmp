@@ -13,8 +13,8 @@ from utils.dataset import CocoDataset, DType
 from utils.metric import MetricEvaluator
 from utils.logger import logger
 
-MAPPINT_TYPE = MappingType.Transformer
-DATA_SPACE = Cfg.root/f'data/clipcap/text_only/{MAPPINT_TYPE.value}/coco'
+MAPPING_TYPE = MappingType.Transformer
+DATA_SPACE = Cfg.root/f'data/clipcap/text_only/{MAPPING_TYPE.value}/coco'
 MODEL_WEIGHTS = DATA_SPACE / '049.pt'
 
 def run_model(
@@ -95,7 +95,7 @@ if __name__ == '__main__':
 		tokenizer = SimpleTokenizer()
 	
 	with logger('clipcap', 'loading'):
-		clipcap_model = ClipCapModel(MAPPINT_TYPE)
+		clipcap_model = ClipCapModel(MAPPING_TYPE)
 		clipcap_model = clipcap_model.to(Cfg.device)
 		clipcap_model.load_state_dict(
 			torch.load(

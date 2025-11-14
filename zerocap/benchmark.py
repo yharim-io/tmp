@@ -1,5 +1,4 @@
 import torch
-from torch import Tensor
 import clip
 from pathlib import Path
 from tqdm import tqdm
@@ -7,41 +6,24 @@ from clip.model import CLIP
 from clip.simple_tokenizer import SimpleTokenizer
 from torchvision.transforms import Compose
 
-from decap.config import Cfg
-from decap.layer.decap import DeCap
-from decap.engine.decode_batch import calc_text_features, image_to_text_batch
+from zerocap.config import Cfg
+from zerocap.layer.gpt2 import GPT2
+from zerocap.engine.decode_batch import image_to_text_batch
 from utils.dataset import CocoDataset, DType
 from utils.metric import MetricEvaluator
 from utils.logger import logger
 
-DATA_SPACE = Cfg.root/'data/decap/text_image/coco'
-MODEL_WEIGHTS = DATA_SPACE / '049.pt'
-
-def get_text_feat(feat_file: Path) -> Tensor:
-	if feat_file.exists():
-		text_features = torch.load(feat_file, weights_only=True).to(Cfg.device)
-	else:
-		ds_train = CocoDataset(
-			annotations=Cfg.coco_train_ann,
-			images_path=Cfg.coco_train_image,
-			cache_path=Cfg.coco_train_cache,
-			dtype=DType.TEXT,
-			clip_model=clip_model,
-			preprocess=preprocess
-		)
-		text_features = calc_text_features(clip_model, ds_train).to(Cfg.device)
-		torch.save(text_features, feat_file)
-	return text_features
+DATA_SPACE = Cfg.root/'data/zerocap/coco'
+DATA_SPACE.mkdir(parents=True, exist_ok=True)
 
 def run_model(
 	clip_model: CLIP,
 	preprocess: Compose,
 	tokenizer: SimpleTokenizer,
-	decap_model: DeCap,
-	text_features: Tensor,
+	gpt_model: GPT2,
 	cache_path: Path | None = None,
 	use_cache: bool = True,
-	batch_size: int = 512
+	batch_size: int = 32
 ) -> tuple[dict, dict]:
 	
 	if use_cache and cache_path is not None and cache_path.exists():
@@ -56,7 +38,7 @@ def run_model(
 		clip_model=clip_model,
 		preprocess=preprocess
 	)
-
+	
 	ground_truth_annotations: dict = {}
 	model_predictions: dict = {}
 	
@@ -86,9 +68,8 @@ def run_model(
 		batch_texts = image_to_text_batch(
 			clip_model=clip_model,
 			preprocess=preprocess,
+			gpt_model=gpt_model,
 			tokenizer=tokenizer,
-			decap_model=decap_model,
-			text_features=text_features,
 			image_paths=batch_paths
 		)
 
@@ -112,26 +93,19 @@ if __name__ == '__main__':
 		clip_model.eval()
 		tokenizer = SimpleTokenizer()
 	
-	with logger('decap', 'loading'):
-		decap_model = DeCap().to(Cfg.device)
-		decap_model.load_state_dict(
-			torch.load(
-				MODEL_WEIGHTS,
-				map_location=Cfg.device,
-				weights_only=True
-			)
-		)
-		decap_model.eval()
-		text_features = get_text_feat(DATA_SPACE/'train_text_features.pt')
+	with logger('gpt2', 'loading'):
+		gpt_model = GPT2().to(Cfg.device)
+		gpt_model.eval()
 	
-	with logger('decap', 'running'):
+	with logger('zerocap', 'running'):
 		ground_truths, predictions = run_model(
-			clip_model, preprocess, tokenizer, decap_model, text_features,
+			clip_model, preprocess, tokenizer, gpt_model,
 			cache_path=DATA_SPACE/'run_model.pt',
-			use_cache=False
+			use_cache=False,
+			batch_size=Cfg.batch_size
 		)
 	
-	with logger('decap', 'evaluating'):
+	with logger('zerocap', 'evaluating'):
 		metric_evaluator = MetricEvaluator(clip_model, preprocess, tokenizer)
 		scores = metric_evaluator.compute(ground_truths, predictions)
 

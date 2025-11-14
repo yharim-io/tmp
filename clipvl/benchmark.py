@@ -13,7 +13,8 @@ from utils.dataset import CocoDataset, DType
 from utils.metric import MetricEvaluator
 from utils.logger import logger
 
-DATASPACE = Cfg.root/'data/clipvl/text_image/transformer/coco'
+MAPPING_TYPE = MappingType.MLP
+DATASPACE = Cfg.root/f'data/clipvl/text_image/{MAPPING_TYPE.value}/coco'
 MODEL_WEIGHTS = DATASPACE / '049.pt'
 
 def run_model(
@@ -94,7 +95,7 @@ if __name__ == '__main__':
 		tokenizer = SimpleTokenizer()
 	
 	with logger('clipvl', 'loading'):
-		clipvl_model = ClipVLModel(MappingType.Transformer)
+		clipvl_model = ClipVLModel(MAPPING_TYPE)
 		clipvl_model = clipvl_model.to(Cfg.device)
 		clipvl_model.load_state_dict(
 			torch.load(

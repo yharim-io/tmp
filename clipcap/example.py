@@ -5,31 +5,30 @@ from clip.simple_tokenizer import SimpleTokenizer
 from clipcap.config import Cfg
 from clipcap.layer.clipcap import ClipCapModel, MappingType
 from clipcap.engine.decode import image_to_text
+from utils.logger import logger
 
 MAPPING_TYPE = MappingType.Transformer
 
-print('[clip] loading...')
-clip_model, preprocess = clip.load(
-	name=Cfg.clip_pretrained_path,
-	device=torch.device('cuda'),
-	jit=False
-)
-clip_model.eval()
-tokenizer = SimpleTokenizer()
-print('[clip] loading done')
-
-print('[clipcap] loading...')
-clipcap_model = ClipCapModel(mapping_type = MAPPING_TYPE)
-clipcap_model.load_state_dict(
-	torch.load(
-		Cfg.root/f'data/clipcap/text_image/{MAPPING_TYPE.value}/coco/042.pt',
-		map_location=torch.device('cpu'),
-		weights_only=True
+with logger('clip', 'logging'):
+	clip_model, preprocess = clip.load(
+		name=Cfg.clip_pretrained_path,
+		device=torch.device('cuda'),
+		jit=False
 	)
-)
-clipcap_model = clipcap_model.to('cuda')
-clipcap_model.eval()
-print('[clipcap] loading done')
+	clip_model.eval()
+	tokenizer = SimpleTokenizer()
+
+with logger('clipcap', 'loading'):
+	clipcap_model = ClipCapModel(mapping_type = MAPPING_TYPE)
+	clipcap_model.load_state_dict(
+		torch.load(
+			Cfg.root/f'data/clipcap/text_image/{MAPPING_TYPE.value}/coco/042.pt',
+			map_location=torch.device('cpu'),
+			weights_only=True
+		)
+	)
+	clipcap_model = clipcap_model.to('cuda')
+	clipcap_model.eval()
 
 for i in range(1, 9):
 
