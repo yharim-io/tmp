@@ -1,4 +1,4 @@
-from utils.config import Config as BaseConfig
+from utils.config import Config as ConfigBase
 
 class _Model:
 	prefix_length: int = 10
@@ -12,7 +12,7 @@ class _Schedule:
 	learning_rate: float = 2e-5 * factor
 	warmup_steps: int = 5000 // factor
 
-class Config(BaseConfig, _Model, _Schedule):
+class Config(ConfigBase, _Model, _Schedule):
 	pass
 
 class Cfg(Config):

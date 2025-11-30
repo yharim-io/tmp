@@ -1,17 +1,30 @@
-from utils.config import Config as BaseConfig
+from utils.config import Config as ConfigBase
 
-class _Decode:
-	beam_size: int = 5
-	top_k: int = 10
-	clip_guidance_scale: float = 2.5
-	max_seq_length: int = 30
-	sot_token_id: int = 49406
-	context_length: int = 77
+class _Model:
+	forbidden_tokens_path: str = ConfigBase.root/'data/zerocap/forbidden_tokens.npy'
 	
-class _Benchmark:
-	batch_size: int = 64
+	cond_text: str = "Image of a"
+	beam_size: int = 5
+	target_seq_length: int = 15
+	
+	reset_context_delta: bool = True
+	num_iterations: int = 5
+	clip_loss_temperature: float = 0.01
+	clip_scale: float = 1.0
+	ce_scale: float = 0.2
+	stepsize: float = 0.3
+	grad_norm_factor: float = 0.9
+	fusion_factor: float = 0.99
+	
+	repetition_penalty: float = 1.0
+	end_token: str = "."
+	end_factor: float = 1.01
+	forbidden_factor: float = 20
+	
+	clip_vocab_size: int = 49408
+	sot_token_id: int = 49406
 
-class Config(BaseConfig, _Decode, _Benchmark):
+class Config(ConfigBase, _Model):
 	pass
 
 class Cfg(Config):

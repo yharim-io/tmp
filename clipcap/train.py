@@ -3,7 +3,7 @@ from clipcap.layer.clipcap import MappingType
 from clipcap.engine.train import train
 from clipcap.config import Cfg
 
-MAPPING_TYPE = MappingType.MLP
+MAPPING_TYPE = MappingType.Transformer
 
 dataset = CocoDataset(
 	annotations = Cfg.coco_train_ann,

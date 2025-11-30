@@ -4,13 +4,18 @@ import torch
 
 class _Path:
 	root: Path = Path('/home/yharim/Source/YottaCap/')
+	
 	coco_train_ann: Path = root/'data/coco/annotations/captions_train2014.json'
 	coco_train_image: Path = root/'data/coco/train2014/'
 	coco_train_cache: Path = root/'data/coco/train_cache/'
+	
 	coco_val_ann: Path = root/'data/coco/annotations/captions_val2014.json'
 	coco_val_image: Path = root/'data/coco/val2014/'
 	coco_val_cache: Path = root/'data/coco/val_cache/'
+	
 	gpt2_config_path: Path = root/'data/gpt2/decoder_config.pkl'
+	gpt2_pretrained_path: Path = root/'data/gpt2/'
+	
 	clip_pretrained_path: Path = root/'data/clip/ViT-B-32.pt'
 
 class _Dist:

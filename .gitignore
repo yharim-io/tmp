@@ -10,6 +10,8 @@
 !clipvl/**
 !decap/
 !decap/**
+!yottacap/
+!yottacap/**
 !utils/
 !utils/**
 

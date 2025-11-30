@@ -1,8 +1,7 @@
 import clip
-from clip.simple_tokenizer import SimpleTokenizer
 
 from zerocap.config import Cfg
-from zerocap.layer.gpt2 import GPT2
+from zerocap.layer.zerocap import ZeroCap
 from zerocap.engine.decode import image_to_text
 from utils.logger import logger
 
@@ -13,19 +12,17 @@ with logger('clip', 'loading'):
 		jit=False
 	)
 	clip_model.eval()
-	tokenizer = SimpleTokenizer()
 
-with logger('gpt2', 'loading'):
-	gpt_model = GPT2().to(Cfg.device)
-	gpt_model.eval()
+with logger('zerocap', 'loading'):
+	zerocap_model = ZeroCap(clip_model=clip_model).to(Cfg.device)
+	zerocap_model.eval()
 
 for i in range(1, 9):
 	image_path = Cfg.root/f'data/example/{i}.jpg'
 	text = image_to_text(
 		clip_model = clip_model,
 		preprocess = preprocess,
-		gpt_model = gpt_model,
-		tokenizer = tokenizer,
+		zerocap_model = zerocap_model,
 		image_path = image_path
 	)
-	print(text)
+	print(f"Image {i}.jpg: {text}")

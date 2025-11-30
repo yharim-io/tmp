@@ -7,7 +7,7 @@ from pathlib import Path
 from PIL import Image
 
 from clipvl.config import Cfg
-from clipvl.layer.clipvl import ClipVLModel
+from clipvl.layer.clipvl import ClipVLModel, MappingType
 
 @torch.no_grad
 def decode_batch(
@@ -70,6 +70,13 @@ def image_to_text_batch(
 	image_emb = captured['value'].permute(1, 0, 2)
 	image_emb = clip_model.visual.ln_post(image_emb).float()
 	
-	prefix_embedding = clipvl_model.clip_project(image_emb)
+	if clipvl_model.mapping_type == MappingType.MLP:
+		image_emb_flat = image_emb.flatten(1)
+		prefix_embedding_flat = clipvl_model.clip_project(image_emb_flat)
+		prefix_embedding = prefix_embedding_flat.view(
+			-1, Cfg.prefix_length, clipvl_model.gpt_embedding_size
+		)
+	else:
+		prefix_embedding = clipvl_model.clip_project(image_emb)
 	
 	return decode_batch(tokenizer, clipvl_model, prefix_embedding)

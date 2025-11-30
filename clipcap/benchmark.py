@@ -13,7 +13,7 @@ from utils.dataset import CocoDataset, DType
 from utils.metric import MetricEvaluator
 from utils.logger import logger
 
-MAPPING_TYPE = MappingType.Transformer
+MAPPING_TYPE = MappingType.MLP
 DATA_SPACE = Cfg.root/f'data/clipcap/text_only/{MAPPING_TYPE.value}/coco'
 MODEL_WEIGHTS = DATA_SPACE / '049.pt'
 

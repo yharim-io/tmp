@@ -7,7 +7,7 @@ from clip.simple_tokenizer import SimpleTokenizer
 from torchvision.transforms import Compose
 
 from zerocap.config import Cfg
-from zerocap.layer.gpt2 import GPT2
+from zerocap.layer.zerocap import ZeroCap
 from zerocap.engine.decode_batch import image_to_text_batch
 from utils.dataset import CocoDataset, DType
 from utils.metric import MetricEvaluator
@@ -20,14 +20,13 @@ def run_model(
 	clip_model: CLIP,
 	preprocess: Compose,
 	tokenizer: SimpleTokenizer,
-	gpt_model: GPT2,
+	zerocap_model: ZeroCap,
 	cache_path: Path | None = None,
 	use_cache: bool = True,
 	batch_size: int = 32
 ) -> tuple[dict, dict]:
 	
 	if use_cache and cache_path is not None and cache_path.exists():
-		print(f'Loading results from {cache_path}')
 		return torch.load(cache_path, weights_only=True)
 	
 	dataset = CocoDataset(
@@ -68,8 +67,7 @@ def run_model(
 		batch_texts = image_to_text_batch(
 			clip_model=clip_model,
 			preprocess=preprocess,
-			gpt_model=gpt_model,
-			tokenizer=tokenizer,
+			zerocap_model=zerocap_model,
 			image_paths=batch_paths
 		)
 
@@ -93,13 +91,13 @@ if __name__ == '__main__':
 		clip_model.eval()
 		tokenizer = SimpleTokenizer()
 	
-	with logger('gpt2', 'loading'):
-		gpt_model = GPT2().to(Cfg.device)
-		gpt_model.eval()
+	with logger('zerocap', 'loading'):
+		zerocap_model = ZeroCap(clip_model=clip_model).to(Cfg.device)
+		zerocap_model.eval()
 	
 	with logger('zerocap', 'running'):
 		ground_truths, predictions = run_model(
-			clip_model, preprocess, tokenizer, gpt_model,
+			clip_model, preprocess, tokenizer, zerocap_model,
 			cache_path=DATA_SPACE/'run_model.pt',
 			use_cache=False,
 			batch_size=Cfg.batch_size
