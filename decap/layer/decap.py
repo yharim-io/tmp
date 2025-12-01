@@ -12,7 +12,7 @@ class DeCap(nn.Module):
 		self.gpt2 = GPT2()
 		self.mlp = MLP((Cfg.clip_dim, self.gpt2.emb_size))
 	
-	def forward(self, clip_features: Tensor, token_ids: Tensor):
+	def forward(self, clip_features: Tensor, token_ids: Tensor) -> Tensor:
 		emb_img_prompt: Tensor = self.mlp(clip_features)
 		emb_img_prompt = emb_img_prompt.reshape(-1, 1, self.gpt2.emb_size)
 		emb_text: Tensor = self.gpt2.embed(token_ids)
