@@ -18,6 +18,7 @@ from yottacap.layer.yottacap import YottaCap
 from yottacap.layer.loss import ASPLoss
 from yottacap.config import Cfg
 from yottacap.utils.chunker import NLTKChunker
+from utils.logger import logger
 
 def get_time_now() -> str:
 	now = datetime.now()
@@ -51,74 +52,96 @@ class YottaDatasetWrapper(Dataset):
 			item['chunk_indices'] = self.chunk_indices[index]
 		return item
 
+	def load_cache(self, target_dicts, chunk_indices):
+		self.target_dicts = target_dicts
+		self.chunk_indices = chunk_indices
+
 def custom_collate(batch):
 	target_dicts = [item.pop('target_dict') for item in batch]
 	batch = default_collate(batch)
 	batch['target_dicts'] = target_dicts
 	return batch
 
-def precompute_embeddings(dataset_wrapper: YottaDatasetWrapper, clip_model: CLIP):
-	print(f"Rank {Cfg.rank}: Pre-computing embeddings with NLTK Chunker...", flush=True)
-	device = Cfg.device
-	# Using larger batch size for faster encoding
-	loader = DataLoader(dataset_wrapper.dataset, batch_size=256, num_workers=8, collate_fn=default_collate)
-	chunker = NLTKChunker()
+def precompute_embeddings(dataset_wrapper: YottaDatasetWrapper, clip_model: CLIP, cache_dir: Path):
+	targets_path = cache_dir / "precomputed_clip_targets.pt"
+	chunks_path = cache_dir / "precomputed_nltk_chunks.pt"
 	
-	global_idx = 0
-	for batch in tqdm(loader, desc=f"Rank {Cfg.rank} Encoding"):
-		text_embs = batch['text_emb'].to(device)
-		B, _ = text_embs.shape
-		
-		batch_phrases = []
-		batch_map = []
-		batch_chunk_indices = []
+	if Cfg.is_master:
+		if targets_path.exists() and chunks_path.exists():
+			print(f"[Precompute] Found existing cache in {cache_dir}, skipping computation.")
+		else:
+			with logger("Precompute", "Computing embeddings on Master"):
+				device = Cfg.device
+				loader = DataLoader(dataset_wrapper.dataset, batch_size=256, num_workers=8, collate_fn=default_collate, shuffle=False)
+				chunker = NLTKChunker()
+				
+				all_target_dicts = [None] * len(dataset_wrapper)
+				all_chunk_indices = [None] * len(dataset_wrapper)
+				
+				global_idx = 0
+				
+				for batch in tqdm(loader, desc="Preprocessing"):
+					text_embs = batch['text_emb'].to(device)
+					B, _ = text_embs.shape
+					
+					batch_phrases = []
+					batch_map = []
+					batch_chunk_ends = []
 
-		for b in range(B):
-			seq = pad_tensor(text_embs[b], Cfg.max_seq_length, 0)
-			
-			# Real NLTK Chunking
-			chunk_ends = chunker.get_chunk_ids(seq)
-			batch_chunk_indices.append(chunk_ends.cpu())
-			
-			L = seq.shape[0]
-			for i in range(L):
-				if seq[i] == 0: continue
-				
-				# Always encode Word
-				batch_phrases.append(seq[i:i+1])
-				batch_map.append((b, i, i))
-				
-				# Encode Phrase only if different
-				end = chunk_ends[i].item()
-				if end > i:
-					batch_phrases.append(seq[i:end+1])
-					batch_map.append((b, i, end))
-		
-		# Batch Encode
-		if batch_phrases:
-			num_phrases = len(batch_phrases)
-			clip_input = torch.zeros((num_phrases, Cfg.context_length), dtype=torch.long, device=device)
-			for k, p in enumerate(batch_phrases):
-				l = p.shape[0]
-				clip_input[k, 0] = Cfg.sot_token_id
-				clip_input[k, 1:1+l] = p
-				clip_input[k, 1+l] = Cfg.eos_token_id
-				
-			with torch.no_grad():
-				encoded = clip_model.encode_text(clip_input).float()
-				encoded = encoded / encoded.norm(dim=-1, keepdim=True)
-				encoded = encoded.cpu()
-				
-			for k, (b_idx, start, end) in enumerate(batch_map):
-				abs_idx = global_idx + b_idx
-				if dataset_wrapper.target_dicts[abs_idx] is None:
-					dataset_wrapper.target_dicts[abs_idx] = {}
-				dataset_wrapper.target_dicts[abs_idx][(start, end)] = encoded[k]
-			
-		for b in range(B):
-			dataset_wrapper.chunk_indices[global_idx + b] = batch_chunk_indices[b]
-			
-		global_idx += B
+					for b in range(B):
+						seq = pad_tensor(text_embs[b], Cfg.max_seq_length, 0)
+						
+						chunk_ends = chunker.get_chunk_ids(seq)
+						batch_chunk_ends.append(chunk_ends.cpu())
+						
+						L = seq.shape[0]
+						for i in range(L):
+							if seq[i] == 0: continue
+							
+							batch_phrases.append(seq[i:i+1])
+							batch_map.append((b, i, i))
+							
+							end = chunk_ends[i].item()
+							if end > i:
+								batch_phrases.append(seq[i:end+1])
+								batch_map.append((b, i, end))
+					
+					if batch_phrases:
+						num_phrases = len(batch_phrases)
+						clip_input = torch.zeros((num_phrases, Cfg.context_length), dtype=torch.long, device=device)
+						
+						for k, p in enumerate(batch_phrases):
+							l = p.shape[0]
+							clip_input[k, 0] = Cfg.sot_token_id
+							clip_input[k, 1:1+l] = p
+							clip_input[k, 1+l] = Cfg.eos_token_id
+						
+						with torch.no_grad():
+							encoded = clip_model.encode_text(clip_input).float()
+							encoded = encoded / encoded.norm(dim=-1, keepdim=True)
+							encoded = encoded.cpu()
+						
+						batch_targets = [{} for _ in range(B)]
+						for k, (b_idx, start, end) in enumerate(batch_map):
+							batch_targets[b_idx][(start, end)] = encoded[k]
+						
+						for b in range(B):
+							idx = global_idx + b
+							all_target_dicts[idx] = batch_targets[b]
+							all_chunk_indices[idx] = batch_chunk_ends[b]
+					
+					global_idx += B
+
+			with logger("Precompute", "Saving cache to disk"):
+				torch.save(all_target_dicts, targets_path)
+				torch.save(all_chunk_indices, chunks_path)
+
+	dist.barrier()
+	
+	with logger(f"Rank {Cfg.rank}", "Loading precomputed data"):
+		loaded_targets = torch.load(targets_path, map_location='cpu')
+		loaded_chunks = torch.load(chunks_path, map_location='cpu')
+		dataset_wrapper.load_cache(loaded_targets, loaded_chunks)
 
 def train(
 	dataset: Dataset,
@@ -141,12 +164,12 @@ def train(
 	
 	wrapped_dataset = YottaDatasetWrapper(dataset)
 	
-	# Load CLIP and precompute
-	clip_model, _ = clip.load(Cfg.clip_pretrained_path, device=Cfg.device, jit=False)
-	clip_model.eval()
-	precompute_embeddings(wrapped_dataset, clip_model)
-	del clip_model
-	torch.cuda.empty_cache()
+	with logger("Train", "Initializing CLIP and Precomputing"):
+		clip_model, _ = clip.load(Cfg.clip_pretrained_path, device=Cfg.device, jit=False)
+		clip_model.eval()
+		precompute_embeddings(wrapped_dataset, clip_model, output_dir)
+		del clip_model
+		torch.cuda.empty_cache()
 	
 	dist.barrier()
 	
@@ -166,40 +189,41 @@ def train(
 	scheduler = get_linear_schedule_with_warmup(optimizer, num_warmup_steps=Cfg.warmup_steps, num_training_steps=epochs * len(dataloader))
 	
 	for epoch in range(start_epoch, epochs + start_epoch):
-		if Cfg.is_master:
-			print(f">>> Training epoch {epoch}", flush=True)
-			progress = tqdm(total = len(dataloader))
-		dist.barrier()
+		sampler.set_epoch(epoch)
 		
-		for item in dataloader:
-			text_emb = item['text_emb'].to(Cfg.device, non_blocking=True)
-			image_feat = item['image_feat'].to(Cfg.device, non_blocking=True)
-			chunk_indices = item['chunk_indices'].to(Cfg.device, non_blocking=True)
-			target_dicts = item['target_dicts']
+		with logger("Train", f"Epoch {epoch}"):
+			if Cfg.is_master:
+				progress = tqdm(total = len(dataloader))
 			
-			with torch.no_grad():
-				clip_feature = image_feat / image_feat.norm(dim=-1, keepdim=True)
-			
-			token_ids = pad_tensor(text_emb, Cfg.max_seq_length, 1)
-			
-			features = yottacap_model.module.forward_hidden(clip_feature.float(), token_ids)
-			preds = features[:, : -1, :] 
-			
-			loss = asp_loss_fn(preds, token_ids, chunk_indices, target_dicts)
-			
-			optimizer.zero_grad()
-			loss.backward()
-			optimizer.step()
-			scheduler.step()
+			for item in dataloader:
+				text_emb = item['text_emb'].to(Cfg.device, non_blocking=True)
+				image_feat = item['image_feat'].to(Cfg.device, non_blocking=True)
+				chunk_indices = item['chunk_indices'].to(Cfg.device, non_blocking=True)
+				target_dicts = item['target_dicts']
+				
+				with torch.no_grad():
+					clip_feature = image_feat / image_feat.norm(dim=-1, keepdim=True)
+				
+				token_ids = pad_tensor(text_emb, Cfg.max_seq_length, 1)
+				
+				features = yottacap_model.module.forward_hidden(clip_feature.float(), token_ids)
+				preds = features[:, : -1, :] 
+				
+				loss = asp_loss_fn(preds, token_ids, chunk_indices, target_dicts)
+				
+				optimizer.zero_grad()
+				loss.backward()
+				optimizer.step()
+				scheduler.step()
+				
+				if Cfg.is_master:
+					progress.set_postfix({'loss': loss.item()})
+					progress.update()
 			
 			if Cfg.is_master:
-				progress.set_postfix({'loss': loss.item()})
-				progress.update()
-			
-		if Cfg.is_master:
-			with open(log_file, 'a+') as f:
-				f.writelines(f'epoch {epoch}: {progress.postfix}\n')
-			progress.close()
-			torch.save(yottacap_model.module.state_dict(), os.path.join(output_dir, f"{epoch:03d}.pt"))
+				with open(log_file, 'a+') as f:
+					f.writelines(f'epoch {epoch}: {progress.postfix}\n')
+				progress.close()
+				torch.save(yottacap_model.module.state_dict(), os.path.join(output_dir, f"{epoch:03d}.pt"))
 			
 	return yottacap_model

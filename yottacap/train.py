@@ -6,7 +6,7 @@ dataset = CocoDataset(
 	annotations = Cfg.coco_train_ann,
 	images_path = Cfg.coco_train_image,
 	cache_path = Cfg.coco_train_cache,
-	dtype = DType.TEXT_EMB | DType.IMAGE_FEAT
+	dtype = DType.TEXT_EMB
 )
 
 yottacap_model = train(
