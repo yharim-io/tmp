@@ -3,8 +3,6 @@ from utils.config import Config as ConfigBase
 class _Model:
 	ln2: float = 0.69314718056
 	asp_temperature: float = 0.1
-	sot_token_id: int = 49406
-	eot_token_id: int = 49407
 	context_length: int = 77
 	vocab_size: int = 49408
 

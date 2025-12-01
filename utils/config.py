@@ -27,6 +27,7 @@ class _Clip:
 	clip_model_type: str = 'ViT-B/32'
 	max_seq_length: int = 25
 	clip_dim: int = 512
+	sot_token_id: int = 49406
 	eos_token_id: int = 49407
 
 class Config(_Path, _Dist, _Clip):

@@ -16,6 +16,7 @@ from pathlib import Path
 from yottacap.layer.yottacap import YottaCap
 from yottacap.layer.loss import ASPLoss
 from yottacap.config import Cfg
+from yottacap.utils.chunker import NLTKChunker
 
 def get_time_now() -> str:
 	now = datetime.now()
@@ -32,20 +33,6 @@ def pad_tensor(tensor: Tensor, max_len: int, dim: int) -> Tensor:
 	elif padding < 0:
 		tensor = tensor.narrow(dim, 0, max_len)
 	return tensor
-
-def generate_chunk_indices(input_ids: Tensor) -> Tensor:
-	L = input_ids.shape[0]
-	chunk_ends = torch.arange(L, device=input_ids.device)
-	patterns = [2, 3, 1]
-	curr = 0
-	p_idx = 0
-	while curr < L:
-		length = patterns[p_idx % len(patterns)]
-		p_idx += 1
-		end = min(curr + length - 1, L - 1)
-		chunk_ends[curr : end + 1] = end
-		curr = end + 1
-	return chunk_ends
 
 class YottaDatasetWrapper(Dataset):
 	def __init__(self, dataset):
@@ -70,11 +57,11 @@ def custom_collate(batch):
 	return batch
 
 def precompute_embeddings(dataset_wrapper: YottaDatasetWrapper, clip_model):
-	# Each rank computes embeddings for the ENTIRE dataset wrapper passed to it.
-	# This ensures robust DDP behavior without communication overhead.
-	print(f"Rank {Cfg.rank}: Pre-computing CLIP embeddings...", flush=True)
+	print(f"Rank {Cfg.rank}: Pre-computing embeddings with NLTK Chunker...", flush=True)
 	device = Cfg.device
+	# Using larger batch size for faster encoding
 	loader = DataLoader(dataset_wrapper.dataset, batch_size=256, num_workers=8, collate_fn=default_collate)
+	chunker = NLTKChunker()
 	
 	global_idx = 0
 	for batch in tqdm(loader, desc=f"Rank {Cfg.rank} Encoding"):
@@ -87,7 +74,9 @@ def precompute_embeddings(dataset_wrapper: YottaDatasetWrapper, clip_model):
 
 		for b in range(B):
 			seq = pad_tensor(text_embs[b], Cfg.max_seq_length, 0)
-			chunk_ends = generate_chunk_indices(seq)
+			
+			# Real NLTK Chunking
+			chunk_ends = chunker.get_chunk_indices(seq)
 			batch_chunk_indices.append(chunk_ends.cpu())
 			
 			L = seq.shape[0]
@@ -104,6 +93,7 @@ def precompute_embeddings(dataset_wrapper: YottaDatasetWrapper, clip_model):
 					batch_phrases.append(seq[i:end+1])
 					batch_map.append((b, i, end))
 		
+		# Batch Encode
 		if batch_phrases:
 			num_phrases = len(batch_phrases)
 			clip_input = torch.zeros((num_phrases, Cfg.context_length), dtype=torch.long, device=device)
@@ -150,7 +140,7 @@ def train(
 	
 	wrapped_dataset = YottaDatasetWrapper(dataset)
 	
-	# Load CLIP and precompute on ALL ranks to ensure data availability
+	# Load CLIP and precompute
 	clip_model, _ = clip.load(Cfg.clip_pretrained_path, device=Cfg.device, jit=False)
 	clip_model.eval()
 	precompute_embeddings(wrapped_dataset, clip_model)
