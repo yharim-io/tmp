@@ -8,6 +8,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 import clip
+from clip.model import CLIP
 import os
 from tqdm import tqdm
 from datetime import datetime
@@ -56,7 +57,7 @@ def custom_collate(batch):
 	batch['target_dicts'] = target_dicts
 	return batch
 
-def precompute_embeddings(dataset_wrapper: YottaDatasetWrapper, clip_model):
+def precompute_embeddings(dataset_wrapper: YottaDatasetWrapper, clip_model: CLIP):
 	print(f"Rank {Cfg.rank}: Pre-computing embeddings with NLTK Chunker...", flush=True)
 	device = Cfg.device
 	# Using larger batch size for faster encoding
@@ -76,7 +77,7 @@ def precompute_embeddings(dataset_wrapper: YottaDatasetWrapper, clip_model):
 			seq = pad_tensor(text_embs[b], Cfg.max_seq_length, 0)
 			
 			# Real NLTK Chunking
-			chunk_ends = chunker.get_chunk_indices(seq)
+			chunk_ends = chunker.get_chunk_ids(seq)
 			batch_chunk_indices.append(chunk_ends.cpu())
 			
 			L = seq.shape[0]
@@ -101,7 +102,7 @@ def precompute_embeddings(dataset_wrapper: YottaDatasetWrapper, clip_model):
 				l = p.shape[0]
 				clip_input[k, 0] = Cfg.sot_token_id
 				clip_input[k, 1:1+l] = p
-				clip_input[k, 1+l] = Cfg.eot_token_id
+				clip_input[k, 1+l] = Cfg.eos_token_id
 				
 			with torch.no_grad():
 				encoded = clip_model.encode_text(clip_input).float()

@@ -29,10 +29,10 @@ def decode(
 			tokens = next_token_id
 		else:
 			tokens = torch.cat((tokens, next_token_id), dim=1)
-			
+		
 		if next_token_id.item() == Cfg.eos_token_id:
 			break
-			
+		
 		next_token_embed = yottacap_model.gpt2.embed(next_token_id)
 		emb_cat = torch.cat((emb_cat, next_token_embed), dim=1)
 		

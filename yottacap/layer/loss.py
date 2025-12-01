@@ -15,8 +15,8 @@ class ASPLoss(nn.Module):
 		chunk_end_ids: Tensor,
 		target_dicts: list[dict]
 	) -> Tensor:
-		target_ids = input_ids[:, 1:]
-		target_chunk_ends = chunk_end_ids[:, 1:]
+		target_ids = input_ids
+		target_chunk_ends = chunk_end_ids
 		
 		B, L, D = pred_embeddings.shape
 		pred_embeddings = F.normalize(pred_embeddings, p=2, dim=-1)
