@@ -69,4 +69,4 @@ class ASPLoss(nn.Module):
 		else:
 			sim_loss = torch.tensor(0.0, device=Cfg.device)
 		
-		return ce_loss + sim_loss
+		return ce_loss * Cfg.asp_temperature + sim_loss

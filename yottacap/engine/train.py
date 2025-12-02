@@ -356,8 +356,8 @@ def train(
 					token_ids = pad_tensor(text_emb, Cfg.max_seq_length, 1)
 					
 					hidden_states, logits = yottacap_model.module.forward(clip_feature, token_ids)
-					hidden_states = hidden_states[:, : -1, :]
-					logits = logits[:, :-1, :]
+					hidden_states = hidden_states[:, 1:-1, :]
+					logits = logits[:, 1:-1, :]
 					
 					loss = asp_loss(
 						hidden_states,
