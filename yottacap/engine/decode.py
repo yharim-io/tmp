@@ -22,7 +22,7 @@ def decode(
 	entry_length = Cfg.max_seq_length
 	
 	for _ in range(entry_length):
-		logits = yottacap_model.gpt2.forward_embeds(inputs_embeds=emb_cat)
+		logits = yottacap_model.gpt2.forward_logits(inputs_embeds=emb_cat)
 		next_token_id = torch.argmax(logits[:, -1, :], dim=-1).unsqueeze(0)
 		
 		if tokens is None:

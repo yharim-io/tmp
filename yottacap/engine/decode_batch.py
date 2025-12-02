@@ -22,7 +22,7 @@ def decode_batch(
 	tokens = torch.zeros((batch_size, 0), dtype=torch.long, device=clip_features.device)
 	
 	for _ in range(entry_length):
-		logits = yottacap_model.gpt2.forward_embeds(inputs_embeds=emb_cat)
+		logits = yottacap_model.gpt2.forward_logits(inputs_embeds=emb_cat)
 		next_token = torch.argmax(logits[:, -1, :], dim=-1).unsqueeze(1)
 		tokens = torch.cat((tokens, next_token), dim=1)
 		

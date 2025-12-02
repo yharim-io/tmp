@@ -19,10 +19,14 @@ class YottaCap(nn.Module):
 		emb_cat: Tensor = torch.cat([emb_img, emb_text], dim=1)
 		return emb_cat
 
-	def forward(self, clip_features: Tensor, token_ids: Tensor) -> Tensor:
+	def forward_logits(self, clip_features: Tensor, token_ids: Tensor) -> Tensor:
 		emb_cat: Tensor = self.get_emb_cat(clip_features, token_ids)
-		return self.gpt2.forward_embeds(emb_cat)
+		return self.gpt2.forward_logits(emb_cat)
 
 	def forward_hidden(self, clip_features: Tensor, token_ids: Tensor) -> Tensor:
 		emb_cat: Tensor = self.get_emb_cat(clip_features, token_ids)
 		return self.gpt2.forward_hidden(emb_cat)
+	
+	def forward(self, clip_features: Tensor, token_ids: Tensor) -> tuple[Tensor, Tensor]:
+		emb_cat: Tensor = self.get_emb_cat(clip_features, token_ids)
+		return self.gpt2.forward(emb_cat)

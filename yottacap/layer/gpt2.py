@@ -16,13 +16,18 @@ class GPT2(nn.Module):
 		self.emb_size = gpt2config.n_embd
 		self.ember = self.core.get_input_embeddings()
 	
-	def forward_embeds(self, inputs_embeds: Tensor) -> Tensor:
+	def forward_logits(self, inputs_embeds: Tensor) -> Tensor:
 		return self.core(inputs_embeds=inputs_embeds).logits
 	
 	def forward_hidden(self, inputs_embeds: Tensor) -> Tensor:
 		return self.core.transformer(
 			inputs_embeds = inputs_embeds
 		).last_hidden_state
+	
+	def forward(self, inputs_embeds: Tensor) -> tuple[Tensor, Tensor]:
+		hidden_state = self.forward_hidden(inputs_embeds)
+		logits = self.core.lm_head(hidden_state)
+		return hidden_state, logits
 	
 	def embed(self, token_ids: Tensor) -> Tensor:
 		return self.ember(token_ids)
