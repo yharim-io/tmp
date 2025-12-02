@@ -12,6 +12,6 @@ dataset = CocoDataset(
 yottacap_model = train(
 	dataset,
 	output_dir = Cfg.root/'data/yottacap/coco/',
-	epochs = 20,
+	epochs = 60,
 	start_epoch = 0,
 )

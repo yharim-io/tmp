@@ -16,8 +16,8 @@ class GPT2(nn.Module):
 		self.emb_size = gpt2config.n_embd
 		self.ember = self.core.get_input_embeddings()
 	
-	def forward_embeds(self, input_embeds: Tensor) -> Tensor:
-		return self.core(input_embeds=input_embeds).logits
+	def forward_embeds(self, inputs_embeds: Tensor) -> Tensor:
+		return self.core(inputs_embeds=inputs_embeds).logits
 	
 	def forward_hidden(self, inputs_embeds: Tensor) -> Tensor:
 		return self.core.transformer(

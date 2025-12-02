@@ -1,14 +1,13 @@
 import torch
 import clip
 from clip.simple_tokenizer import SimpleTokenizer
-from pathlib import Path
 
 from yottacap.config import Cfg
 from yottacap.layer.yottacap import YottaCap
 from yottacap.engine.decode import image_to_text
 from utils.logger import logger
 
-with logger('clip', 'logging'):
+with logger('clip', 'loading'):
 	clip_model, preprocess = clip.load(
 		name=Cfg.clip_pretrained_path,
 		device=Cfg.device,
@@ -19,7 +18,7 @@ with logger('clip', 'logging'):
 
 with logger('yottacap', 'loading'):
 	yottacap_model = YottaCap()
-	weights_path = Cfg.root/'data/yottacap/coco/010.pt'
+	weights_path = Cfg.root/'data/yottacap/coco/000.pt'
 	if weights_path.exists():
 		yottacap_model.load_state_dict(
 			torch.load(weights_path, map_location='cpu', weights_only=True)
