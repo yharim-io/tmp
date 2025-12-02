@@ -126,7 +126,7 @@ def precompute_embeddings(
                 loader = DataLoader(
                     dataset_wrapper.dataset,
                     batch_size=512,
-                    num_workers=2,
+                    num_workers=0,
                     collate_fn=default_collate,
                     shuffle=False
                 )
@@ -304,7 +304,7 @@ def train(
         sampler=sampler,
         batch_size=batch_size,
         drop_last=True,
-        num_workers=2,
+        num_workers=0,
         pin_memory=True,
         collate_fn=custom_collate
     )

@@ -48,7 +48,8 @@ class ASPLoss(nn.Module):
 			target_word_list.append(b_word_embs)
 			target_phrase_list.append(b_phrase_embs)
 		
-		target_word_embs = torch.stack(target_word_list)
+		# target_word_embs = torch.stack(target_word_list)
+		target_word_embs = F.normalize(torch.stack(target_word_list), p=2, dim=-1)
 		
 		s_word = (pred_embeddings * target_word_embs).sum(dim=-1)
 
@@ -65,7 +66,8 @@ class ASPLoss(nn.Module):
 		
 		mask_b = (~ is_same) & mask_pad
 		if mask_b.any():
-			target_phrase_embs = torch.stack(target_phrase_list)
+			# target_phrase_embs = torch.stack(target_phrase_list)
+			target_phrase_embs = F.normalize(torch.stack(target_phrase_list), p=2, dim=-1)
 			s_phrase_part = (pred_embeddings[mask_b] * target_phrase_embs[mask_b]).sum(dim=-1)
 			s_word_part = s_word[mask_b]
 			
