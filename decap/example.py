@@ -24,8 +24,9 @@ def get_text_feat(feat_file: Path) -> Tensor:
 		)
 		text_features = calc_text_features(clip_model, dataset)
 		torch.save(text_features, feat_file)
+	return text_features
 
-with logger('clip', 'logging'):
+with logger('clip', 'loading'):
 	clip_model, preprocess = clip.load(
 		name=Cfg.clip_pretrained_path,
 		device=torch.device('cuda'),
@@ -38,7 +39,7 @@ with logger('decap', 'loading'):
 	decap_model = DeCap()
 	decap_model.load_state_dict(
 		torch.load(
-			Cfg.root/'data/decap/text_image/coco/009.pt',
+			Cfg.root/'data/decap/text_image/coco/001.pt',
 			map_location=torch.device('cpu'),
 			weights_only=True
 		)

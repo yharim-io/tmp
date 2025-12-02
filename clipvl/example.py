@@ -9,7 +9,7 @@ from utils.logger import logger
 
 MAPPING_TYPE = MappingType.Transformer
 
-with logger('clip', 'logging'):
+with logger('clip', 'loading'):
 	clip_model, preprocess = clip.load(
 		name=Cfg.clip_pretrained_path,
 		device=torch.device('cuda'),
@@ -22,7 +22,7 @@ with logger('clipvl', 'loading'):
 	clipvl_model = ClipVLModel(mapping_type = MAPPING_TYPE)
 	clipvl_model.load_state_dict(
 		torch.load(
-			Cfg.root/f'data/clipvl/text_image/{MAPPING_TYPE.value}/coco/030.pt',
+			Cfg.root/f'data/clipvl/text_image/{MAPPING_TYPE.value}/coco/001.pt',
 			map_location=torch.device('cpu'),
 			weights_only=True
 		)

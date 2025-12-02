@@ -18,7 +18,7 @@ with logger('clip', 'loading'):
 
 with logger('yottacap', 'loading'):
 	yottacap_model = YottaCap()
-	weights_path = Cfg.root/'data/yottacap/coco/000.pt'
+	weights_path = Cfg.root/'data/yottacap/coco/014.pt'
 	if weights_path.exists():
 		yottacap_model.load_state_dict(
 			torch.load(weights_path, map_location='cpu', weights_only=True)
