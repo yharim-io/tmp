@@ -9,9 +9,11 @@ dataset = CocoDataset(
 	dtype = DType.TEXT_EMB
 )
 
+# dataset.subset(102400)
+
 yottacap_model = train(
 	dataset,
 	output_dir = Cfg.root/'data/yottacap/coco/',
-	epochs = 60,
+	epochs = 1,
 	start_epoch = 0,
 )

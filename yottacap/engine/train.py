@@ -110,15 +110,11 @@ def precompute_embeddings(
 	device: torch.device, 
 	is_master: bool
 ):
-	# 使用 Tensor 存储的分片文件
-	num_shards = 20
-	shard_template = "tensor_shard_{:02d}.pt"
+	cache_file = cache_dir / "tensor_cache.pt"
 	
-	all_exist = all((cache_dir / shard_template.format(i)).exists() for i in range(num_shards))
-	
-	if all_exist:
+	if cache_file.exists():
 		if is_master:
-			print(f"[Precompute] Found existing tensor shards in {cache_dir}.")
+			print(f"[Precompute] Found existing tensor cache in {cache_file}.")
 	else:
 		if is_master:
 			with logger("Precompute", "Computing (Tensor Mode) on Rank 0"):
@@ -132,15 +128,11 @@ def precompute_embeddings(
 				)
 				chunker = NLTKChunker()
 				
-				# 临时列表用于分片
-				shard_emb_list = []
-				shard_meta_list = [] # [sample_idx, start, end]
-				shard_chunk_list = []
+				all_emb_list = []
+				all_meta_list = [] # [sample_idx, start, end]
+				all_chunk_list = []
 				
 				global_idx = 0
-				current_shard_idx = 0
-				total_samples = len(dataset_wrapper)
-				samples_per_shard = (total_samples + num_shards - 1) // num_shards
 				
 				for batch in tqdm(loader, desc="Encoding"):
 					text_embs = batch['text_emb']
@@ -182,67 +174,37 @@ def precompute_embeddings(
 							encoded = encoded / encoded.norm(dim=-1, keepdim=True)
 							encoded = encoded.cpu()
 						
-						shard_emb_list.append(encoded)
+						all_emb_list.append(encoded)
 						
 						# 构建元数据 [sample_global_idx, start, end]
 						meta_tensor = torch.tensor(batch_map, dtype=torch.long)
 						meta_tensor[:, 0] += global_idx # 修正为全局样本ID
-						shard_meta_list.append(meta_tensor)
+						all_meta_list.append(meta_tensor)
 					
-					shard_chunk_list.extend(batch_chunk_ends)
+					all_chunk_list.extend(batch_chunk_ends)
 					global_idx += B
-					
-					# 检查是否需要保存分片
-					if len(shard_chunk_list) >= samples_per_shard or global_idx >= total_samples:
-						save_path = cache_dir / shard_template.format(current_shard_idx)
-						
-						# 拼接并保存为 Tensor
-						data_to_save = {
-							'embeddings': torch.cat(shard_emb_list) if shard_emb_list else torch.empty(0),
-							'metadata': torch.cat(shard_meta_list) if shard_meta_list else torch.empty(0),
-							'chunks': torch.stack(shard_chunk_list) # (N_shard, Seq_Len)
-						}
-						torch.save(data_to_save, save_path)
-						
-						# 清空缓存
-						shard_emb_list = []
-						shard_meta_list = []
-						shard_chunk_list = []
-						current_shard_idx += 1
-						gc.collect()
+				
+				data_to_save = {
+					'embeddings': torch.cat(all_emb_list) if all_emb_list else torch.empty(0),
+					'metadata': torch.cat(all_meta_list) if all_meta_list else torch.empty(0),
+					'chunks': torch.stack(all_chunk_list)
+				}
+				torch.save(data_to_save, cache_file)
+				
+				del all_emb_list, all_meta_list, all_chunk_list
+				gc.collect()
 
 	dist.barrier(device_ids=[device.index])
 	
-	with logger(f"Rank {Cfg.rank}", "Loading Tensor Shards"):
+	with logger(f"Rank {Cfg.rank}", "Loading Tensor Cache"):
 		gc.collect()
 		
-		full_embeddings_list = []
-		full_metadata_list = []
-		full_chunks_list = []
+		data = torch.load(cache_file, map_location='cpu', weights_only=True)
+		final_chunks_list = [t for t in data['chunks']] 
 		
-		iterator = range(num_shards)
-		if Cfg.rank == 0:
-			iterator = tqdm(iterator, desc="Merging Tensors")
-			
-		for i in iterator:
-			path = cache_dir / shard_template.format(i)
-			if not path.exists(): break
-			
-			data = torch.load(path, map_location='cpu', weights_only=True)
-			full_embeddings_list.append(data['embeddings'])
-			full_metadata_list.append(data['metadata'])
-			full_chunks_list.append(data['chunks'])
-			del data
+		dataset_wrapper.load_cache(data['embeddings'], data['metadata'], final_chunks_list)
 		
-		final_embeddings = torch.cat(full_embeddings_list)
-		final_metadata = torch.cat(full_metadata_list)
-		final_chunks = torch.cat(full_chunks_list)
-		
-		final_chunks_list = [t for t in final_chunks] 
-		
-		dataset_wrapper.load_cache(final_embeddings, final_metadata, final_chunks_list)
-		
-		del full_embeddings_list, full_metadata_list, full_chunks_list
+		del data
 		gc.collect()
 
 	dist.barrier(device_ids=[device.index])
@@ -294,7 +256,8 @@ def train(
 	yottacap_model.to(device)
 	yottacap_model = DDP(module=yottacap_model, device_ids=[local_rank], output_device=local_rank)
 	
-	asp_loss = ASPLoss()
+	ce_loss_fn = torch.nn.CrossEntropyLoss(ignore_index=0)
+	# asp_loss_fn = ASPLoss()
 	
 	optimizer = AdamW(yottacap_model.parameters(), lr=lr)
 	sampler = DistributedSampler(wrapped_dataset)
@@ -314,74 +277,85 @@ def train(
 		num_training_steps=epochs * len(dataloader)
 	)
 	
-	try:
-		for epoch in range(start_epoch, epochs + start_epoch):
-			sampler.set_epoch(epoch)
+	for epoch in range(start_epoch, epochs + start_epoch):
+		sampler.set_epoch(epoch)
+		
+		if is_master:
+			log_ctx = logger("Train", f"Epoch {epoch}")
+		else:
+			log_ctx = nullcontext()
+
+		with log_ctx:
+			if is_master:
+				progress = tqdm(total = len(dataloader))
+			
+			for item in dataloader:
+				text_emb = item['text_emb'].to(device, non_blocking=True)
+				chunk_indices = item['chunk_indices'].to(device, non_blocking=True)
+				target_dicts = item['target_dicts']
+				
+				chunk_indices = chunk_indices[:, 1:]
+				
+				with torch.no_grad():
+					clip_feature = clip_model.encode_text(text_emb)
+					clip_feature = clip_feature / clip_feature.norm(dim=-1, keepdim=True)
+					clip_feature = clip_feature.float()
+				
+				flat_targets = []
+				map_info = []
+				for b_idx, t_dict in enumerate(target_dicts):
+					for k, v in t_dict.items():
+						flat_targets.append(v)
+						map_info.append((b_idx, k))
+				
+				if flat_targets:
+					flat_targets_tensor = torch.stack(flat_targets).to(device)
+					projected_targets = yottacap_model.module.mlp(flat_targets_tensor)
+					
+					for i, (b_idx, k) in enumerate(map_info):
+						target_dicts[b_idx][k] = projected_targets[i]
+
+				token_ids = pad_tensor(text_emb, Cfg.max_seq_length, 1)
+				
+				hidden_states, logits = yottacap_model.module.forward(clip_feature, token_ids)
+				hidden_states = hidden_states[:, 1:-1, :]
+				logits = logits[:, 1:-1, :]
+				
+				ce_loss = ce_loss_fn(
+					logits.reshape(-1, logits.shape[-1]),
+					token_ids[:, 1:].reshape(-1)
+				)
+				
+				# asp_loss = asp_loss_fn(
+				# 	hidden_states,
+				# 	token_ids,
+				# 	chunk_indices,
+				# 	target_dicts
+				# )
+				
+				# loss = ce_loss * Cfg.asp_temperature + asp_loss
+
+				loss = ce_loss
+				
+				optimizer.zero_grad()
+				loss.backward()
+				optimizer.step()
+				scheduler.step()
+				
+				if is_master:
+					progress.set_postfix({
+						'loss': loss.item(),
+						# 'ce': ce_loss.item(),
+						# 'asp': asp_loss.item()
+					})
+					progress.update()
 			
 			if is_master:
-				log_ctx = logger("Train", f"Epoch {epoch}")
-			else:
-				log_ctx = nullcontext()
+				with open(log_file, 'a+') as f:
+					f.writelines(f'epoch {epoch}: {progress.postfix}\n')
+				progress.close()
+				torch.save(yottacap_model.module.state_dict(), os.path.join(output_dir, f"{epoch:03d}.pt"))
 
-			with log_ctx:
-				if is_master:
-					progress = tqdm(total = len(dataloader))
-				
-				for item in dataloader:
-					text_emb = item['text_emb'].to(device, non_blocking=True)
-					chunk_indices = item['chunk_indices'].to(device, non_blocking=True)
-					target_dicts = item['target_dicts']
-					
-					chunk_indices = chunk_indices[:, 1:]
-					
-					with torch.no_grad():
-						clip_feature = clip_model.encode_text(text_emb)
-						clip_feature = clip_feature / clip_feature.norm(dim=-1, keepdim=True)
-						clip_feature = clip_feature.float()
-					
-					flat_targets = []
-					map_info = []
-					for b_idx, t_dict in enumerate(target_dicts):
-						for k, v in t_dict.items():
-							flat_targets.append(v)
-							map_info.append((b_idx, k))
-					
-					if flat_targets:
-						flat_targets_tensor = torch.stack(flat_targets).to(device)
-						projected_targets = yottacap_model.module.mlp(flat_targets_tensor)
-						
-						for i, (b_idx, k) in enumerate(map_info):
-							target_dicts[b_idx][k] = projected_targets[i]
-
-					token_ids = pad_tensor(text_emb, Cfg.max_seq_length, 1)
-					
-					hidden_states, logits = yottacap_model.module.forward(clip_feature, token_ids)
-					hidden_states = hidden_states[:, 1:-1, :]
-					logits = logits[:, 1:-1, :]
-					
-					loss = asp_loss(
-						hidden_states,
-						logits,
-						token_ids,
-						chunk_indices,
-						target_dicts
-					)
-					
-					optimizer.zero_grad()
-					loss.backward()
-					optimizer.step()
-					scheduler.step()
-					
-					if is_master:
-						progress.set_postfix({'loss': loss.item()})
-						progress.update()
-				
-				if is_master:
-					with open(log_file, 'a+') as f:
-						f.writelines(f'epoch {epoch}: {progress.postfix}\n')
-					progress.close()
-					torch.save(yottacap_model.module.state_dict(), os.path.join(output_dir, f"{epoch:03d}.pt"))
-	finally:
-		dist.destroy_process_group()
-			
+	dist.destroy_process_group()
+	
 	return yottacap_model

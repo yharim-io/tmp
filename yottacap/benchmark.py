@@ -1,5 +1,6 @@
 import torch
 import clip
+from torch import Tensor
 from pathlib import Path
 from tqdm import tqdm
 from clip.model import CLIP
@@ -8,6 +9,7 @@ from torchvision.transforms import Compose
 
 from yottacap.config import Cfg
 from yottacap.layer.yottacap import YottaCap
+from yottacap.engine.decode import calc_text_features
 from yottacap.engine.decode_batch import image_to_text_batch
 from utils.dataset import CocoDataset, DType
 from utils.metric import MetricEvaluator
@@ -16,11 +18,29 @@ from utils.logger import logger
 DATA_SPACE = Cfg.root/'data/yottacap/coco'
 MODEL_WEIGHTS = DATA_SPACE / '049.pt'
 
+def get_text_feat(feat_file: Path, clip_model: CLIP, preprocess: Compose) -> Tensor:
+	if feat_file.exists():
+		text_features = torch.load(feat_file, weights_only=True).to(Cfg.device)
+	else:
+		print('[yottacap] calculating text features...')
+		dataset = CocoDataset(
+			annotations = Cfg.coco_train_ann,
+			images_path = Cfg.coco_train_image,
+			cache_path = Cfg.coco_train_cache,
+			dtype = DType.TEXT,
+			clip_model = clip_model,
+			preprocess = preprocess
+		)
+		text_features = calc_text_features(clip_model, dataset)
+		torch.save(text_features, feat_file)
+	return text_features
+
 def run_model(
 	clip_model: CLIP,
 	preprocess: Compose,
 	tokenizer: SimpleTokenizer,
 	yottacap_model: YottaCap,
+	text_features: Tensor,
 	cache_path: Path | None = None,
 	use_cache: bool = True,
 	batch_size: int = 256
@@ -70,6 +90,7 @@ def run_model(
 			preprocess=preprocess,
 			tokenizer=tokenizer,
 			yottacap_model=yottacap_model,
+			text_features=text_features,
 			image_paths=batch_paths
 		)
 
@@ -104,10 +125,11 @@ if __name__ == '__main__':
 				)
 			)
 		yottacap_model.eval()
+		text_features = get_text_feat(DATA_SPACE/'train_text_features.pt', clip_model, preprocess)
 	
 	with logger('yottacap', 'running'):
 		ground_truths, predictions = run_model(
-			clip_model, preprocess, tokenizer, yottacap_model,
+			clip_model, preprocess, tokenizer, yottacap_model, text_features,
 			cache_path=DATA_SPACE/'run_model.pt',
 			use_cache=False
 		)

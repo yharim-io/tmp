@@ -45,6 +45,7 @@ def image_to_text_batch(
 	preprocess: Compose,
 	tokenizer: SimpleTokenizer,
 	yottacap_model: YottaCap,
+	text_features: Tensor,
 	image_paths: list[Path]
 ) -> list[str]:
 	
@@ -57,4 +58,10 @@ def image_to_text_batch(
 	image_features = clip_model.encode_image(image_batch).float()
 	image_features /= image_features.norm(dim=-1, keepdim=True)
 	
-	return decode_batch(tokenizer, yottacap_model, image_features)
+	sim = image_features @ text_features.T.float()
+	sim = (sim * 100).softmax(dim=-1)
+	
+	prefix_embedding = sim @ text_features.float()
+	prefix_embedding /= prefix_embedding.norm(dim=-1, keepdim=True)
+	
+	return decode_batch(tokenizer, yottacap_model, prefix_embedding)
