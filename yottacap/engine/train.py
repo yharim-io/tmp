@@ -256,7 +256,7 @@ def train(
 	yottacap_model.to(device)
 	yottacap_model = DDP(module=yottacap_model, device_ids=[local_rank], output_device=local_rank)
 	
-	ce_loss_fn = torch.nn.CrossEntropyLoss(ignore_index=0)
+	ce_loss_fn = torch.nn.CrossEntropyLoss(ignore_index=0, label_smoothing=0.1)
 	# asp_loss_fn = ASPLoss()
 	
 	optimizer = AdamW(yottacap_model.parameters(), lr=lr)
@@ -318,12 +318,12 @@ def train(
 				token_ids = pad_tensor(text_emb, Cfg.max_seq_length, 1)
 				
 				hidden_states, logits = yottacap_model.module.forward(clip_feature, token_ids)
-				hidden_states = hidden_states[:, 1:-1, :]
-				logits = logits[:, 1:-1, :]
+				hidden_states = hidden_states[:, :-1, :]
+				logits = logits[:, :-1, :]
 				
 				ce_loss = ce_loss_fn(
 					logits.reshape(-1, logits.shape[-1]),
-					token_ids[:, 1:].reshape(-1)
+					token_ids.reshape(-1)
 				)
 				
 				# asp_loss = asp_loss_fn(
