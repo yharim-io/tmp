@@ -1,67 +1,62 @@
 import torch
-from torch import Tensor
-from clip.model import CLIP
-from clip.simple_tokenizer import SimpleTokenizer
 from torchvision.transforms import Compose
-from pathlib import Path
+from clip.simple_tokenizer import SimpleTokenizer
 from PIL import Image
+from pathlib import Path
 
 from yottacap.layer.yottacap import YottaCap
 from yottacap.config import Cfg
 
 @torch.no_grad
-def decode_batch(
-	tokenizer: SimpleTokenizer,
-	yottacap_model: YottaCap,
-	clip_features: Tensor,
-	entry_length: int = 30
-) -> list[str]:
-	yottacap_model.eval()
-	batch_size = clip_features.shape[0]
-	emb_cat = yottacap_model.mlp(clip_features).reshape(batch_size, 1, -1)
-	tokens = torch.zeros((batch_size, 0), dtype=torch.long, device=clip_features.device)
-	
-	for _ in range(entry_length):
-		logits = yottacap_model.gpt2.forward_logits(inputs_embeds=emb_cat)
-		next_token = torch.argmax(logits[:, -1, :], dim=-1).unsqueeze(1)
-		tokens = torch.cat((tokens, next_token), dim=1)
-		
-		next_token_embed = yottacap_model.gpt2.embed(next_token)
-		emb_cat = torch.cat((emb_cat, next_token_embed), dim=1)
-	
-	output_texts = []
-	token_lists = tokens.cpu().numpy().tolist()
-	
-	for seq in token_lists:
-		text = tokenizer.decode(seq)
-		text = text.replace('<|startoftext|>', '').split('<|endoftext|>')[0]
-		output_texts.append(text)
-		
-	return output_texts
-
-@torch.no_grad
 def image_to_text_batch(
-	clip_model: CLIP,
 	preprocess: Compose,
 	tokenizer: SimpleTokenizer,
-	yottacap_model: YottaCap,
-	text_features: Tensor,
+	model: YottaCap,
 	image_paths: list[Path]
 ) -> list[str]:
+	model.eval()
 	
-	images = []
-	for p in image_paths:
-		images.append(preprocess(Image.open(p)))
+	images = [preprocess(Image.open(p)) for p in image_paths]
+	image_tensor = torch.stack(images).to(Cfg.device)
 	
-	image_batch = torch.stack(images).to(Cfg.device)
+	feats = model.extract_clip_features(image=image_tensor)
+	S_img = model.get_image_latent(feats['vit_tokens'])
+	prefix = model.latent_to_gpt(S_img)
 	
-	image_features = clip_model.encode_image(image_batch).float()
-	image_features /= image_features.norm(dim=-1, keepdim=True)
+	B = len(image_paths)
+	generated = torch.zeros((B, 0), dtype=torch.long, device=Cfg.device)
+	unfinished = torch.ones(B, dtype=torch.bool, device=Cfg.device)
 	
-	sim = image_features @ text_features.T.float()
-	sim = (sim * 100).softmax(dim=-1)
-	
-	prefix_embedding = sim @ text_features.float()
-	prefix_embedding /= prefix_embedding.norm(dim=-1, keepdim=True)
-	
-	return decode_batch(tokenizer, yottacap_model, prefix_embedding)
+	for _ in range(Cfg.max_seq_length):
+		if generated.shape[1] == 0:
+			sot = torch.tensor([[tokenizer.encoder['<|startoftext|>']]] * B, device=Cfg.device)
+			emb_text = model.gpt2.embed(sot)
+		else:
+			sot = torch.tensor([[tokenizer.encoder['<|startoftext|>']]] * B, device=Cfg.device)
+			full_seq = torch.cat([sot, generated], dim=1)
+			emb_text = model.gpt2.embed(full_seq)
+			
+		inputs = torch.cat([prefix, emb_text], dim=1)
+		logits = model.gpt2.forward_logits(inputs)
+		next_tokens = logits[:, -1, :].argmax(dim=-1, keepdim=True)
+		
+		generated = torch.cat([generated, next_tokens], dim=1)
+		
+		eos_id = tokenizer.encoder['<|endoftext|>']
+		just_finished = (next_tokens.squeeze(1) == eos_id)
+		unfinished = unfinished & (~just_finished)
+		
+		if (~unfinished).all():
+			break
+			
+	results = []
+	for i in range(B):
+		tokens = generated[i].cpu().tolist()
+		try:
+			end_idx = tokens.index(eos_id)
+			tokens = tokens[:end_idx]
+		except ValueError:
+			pass
+		results.append(tokenizer.decode(tokens))
+		
+	return results
