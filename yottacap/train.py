@@ -6,9 +6,10 @@ dataset = CocoDataset(
 	annotations = Cfg.coco_train_ann,
 	images_path = Cfg.coco_train_image,
 	cache_path = Cfg.coco_train_cache,
-	dtype = DType.TEXT_EMB | DType.IMAGE_EMB,
-    capacity=1000,
+	dtype = DType.TEXT_EMB | DType.TEXT_FEAT | DType.IMAGE_EMB | DType.IMAGE_FEAT,
 )
+
+dataset.subset(4096)
 
 train(
 	dataset,

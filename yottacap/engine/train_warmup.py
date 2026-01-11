@@ -26,17 +26,17 @@ def train_warmup(
 	tqdmloader = tqdm(dataloader, desc='Text Priming') if Cfg.is_master else dataloader
 	
 	for batch in tqdmloader:
-		text_input: Tensor = batch['text_emb']
-		text_input = text_input.to(Cfg.device, non_blocking=True)
+		text_emb: Tensor = batch['text_emb']
+		text_emb = text_emb.to(Cfg.device, non_blocking=True)
 		
-		features = model.extract_clip_features(text=text_input)
+		features = model.extract_clip_features(text=text_emb)
 		if 'text_tokens' not in features:
 			continue
 			
 		S_text = model.get_text_latent(features['text_tokens'])
-		logits = model.forward(S_text, text_input[:, :-1])
+		logits = model.forward(S_text, text_emb[:, :-1])
 		logits = logits[:, S_text.shape[1]:]
-		loss_ce = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_input[:, 1:].flatten())
+		loss_ce = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
 		
 		optimizer.zero_grad()
 		loss_ce.backward()
@@ -51,16 +51,12 @@ def train_warmup(
 	tqdmloader = tqdm(dataloader, desc='Image Alignment') if Cfg.is_master else dataloader
 
 	for batch in tqdmloader:
-		image_input = batch['image_emb']
-		image_input = image_input.to(Cfg.device, non_blocking=True)
+		image_emb = batch['image_emb']
+		image_emb = image_emb.to(Cfg.device, non_blocking=True)
 		
-		features = model.extract_clip_features(image=image_input)
-		if 'vit_tokens' not in features:
-			continue
-		
-		S_img = model.get_image_latent(features['vit_tokens'])
+		S_img = model.get_image_latent(image_emb)
 		S_img_pool = F.normalize(S_img.mean(dim=1), dim=-1)
-		T_image = features['T_image']
+		T_image = batch['image_feat']
 		
 		loss_sim = 1.0 - (S_img_pool * T_image).sum(dim=-1).mean()
 		
@@ -77,15 +73,15 @@ def train_warmup(
 	tqdmloader = tqdm(dataloader, desc='Discriminator Warmup') if Cfg.is_master else dataloader
 
 	for batch in tqdmloader:
-		text_input = batch['text_emb']
-		image_input = batch['image_emb']
-		text_input = text_input.to(Cfg.device, non_blocking=True)
-		image_input = image_input.to(Cfg.device, non_blocking=True)
+		text_emb = batch['text_emb']
+		image_emb = batch['image_emb']
+		text_emb = text_emb.to(Cfg.device, non_blocking=True)
+		image_emb = image_emb.to(Cfg.device, non_blocking=True)
 		
 		with torch.no_grad():
-			features = model.extract_clip_features(image=image_input, text=text_input)
+			features = model.extract_clip_features(text=text_emb)
 			S_text = model.get_text_latent(features['text_tokens'])
-			S_img = model.get_image_latent(features['vit_tokens'])
+			S_img = model.get_image_latent(image_emb)
 		
 		S_text = S_text.detach()
 		S_img = S_img.detach()
