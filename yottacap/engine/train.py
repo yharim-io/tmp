@@ -14,6 +14,7 @@ def train(
 	dataset,
 	output_dir: Path,
 	epochs: int,
+	start_epoch: int = 0,
 ):
 	local_rank = int(os.environ["LOCAL_RANK"])
 	device = torch.device(f"cuda:{local_rank}")
@@ -37,10 +38,10 @@ def train(
 		dataset, batch_size=Cfg.batch_size, shuffle=True
 	)
 	
-	for epoch in range(epochs):
+	for epoch in range(start_epoch, epochs + start_epoch):
 		if epoch < Cfg.warmup_epochs:
 			if is_master: print(f"--- Epoch {epoch}: Warmup ---")
-			train_warmup(dataloader, model, optimizer)
+			train_warmup(dataloader, model.module, optimizer)
 		else:
 			if is_master: print(f"--- Epoch {epoch}: Adversarial ---")
 			train_adversarial(dataloader, model, optimizer, disc_optimizer)

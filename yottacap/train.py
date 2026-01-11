@@ -6,11 +6,13 @@ dataset = CocoDataset(
 	annotations = Cfg.coco_train_ann,
 	images_path = Cfg.coco_train_image,
 	cache_path = Cfg.coco_train_cache,
-	dtype = DType.TEXT_EMB | DType.IMAGE
+	dtype = DType.TEXT_EMB | DType.IMAGE_EMB,
+    capacity=1000,
 )
 
 train(
 	dataset,
 	output_dir = Cfg.root/'data/yottacap/coco/',
-	epochs = 20,
+	epochs = 10,
+    start_epoch = 0,
 )

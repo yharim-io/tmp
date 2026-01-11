@@ -20,6 +20,7 @@ class ImageAdapter(AdapterBase):
 class TextAdapter(AdapterBase):
 	def __init__(self):
 		super().__init__()
+		self.project = nn.Linear(Cfg.clip_dim, Cfg.latent_dim)
 		self.mask_token = nn.Parameter(torch.randn(1, 1, Cfg.latent_dim))
 	
 	def random_mask(self, x: Tensor) -> Tensor:
@@ -30,5 +31,6 @@ class TextAdapter(AdapterBase):
 		return masked_x
 	
 	def forward(self, features: Tensor) -> Tensor:
-		masked_x = self.random_mask(features)
+		x = self.project(features)
+		masked_x = self.random_mask(x)
 		return self.transformer(masked_x)

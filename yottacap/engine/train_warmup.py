@@ -2,6 +2,7 @@ import torch
 from torch import nn, Tensor
 from torch.nn import functional as F
 from torch.optim import Optimizer
+from tqdm import tqdm
 
 from yottacap.layer.yottacap import YottaCap
 from yottacap.config import Cfg
@@ -19,16 +20,14 @@ def train_warmup(
 			for p in mod.parameters():
 				p.requires_grad = not freeze
 	
-	if Cfg.is_master:
-		print('Text Priming...')
 	set_freeze([model.image_adapter, model.discriminator], True)
 	set_freeze([model.text_adapter], False)
+
+	tqdmloader = tqdm(dataloader, desc='Text Priming') if Cfg.is_master else dataloader
 	
-	for i, batch in enumerate(dataloader):
-		text_input: Tensor = batch.get('text_emb', None)
-		if text_input is None:
-			continue
-		text_input = text_input.to(Cfg.device)
+	for batch in tqdmloader:
+		text_input: Tensor = batch['text_emb']
+		text_input = text_input.to(Cfg.device, non_blocking=True)
 		
 		features = model.extract_clip_features(text=text_input)
 		if 'text_tokens' not in features:
@@ -36,57 +35,52 @@ def train_warmup(
 			
 		S_text = model.get_text_latent(features['text_tokens'])
 		logits = model.forward(S_text, text_input[:, :-1])
-		loss = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_input[:, 1:].flatten())
+		logits = logits[:, S_text.shape[1]:]
+		loss_ce = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_input[:, 1:].flatten())
 		
 		optimizer.zero_grad()
-		loss.backward()
+		loss_ce.backward()
 		optimizer.step()
 		
 		if Cfg.is_master:
-			print(f'    Step {i} Text Loss: {loss.item():.4f}')
-	
-	if Cfg.is_master:
-		print('Image Alignment...')
+			tqdmloader.set_postfix({'LossCE': loss_ce.item()})
+
 	set_freeze([model.text_adapter, model.discriminator], True)
 	set_freeze([model.image_adapter], False)
 	
-	for i, batch in enumerate(dataloader):
-		image_input = batch.get('image', None)
-		if image_input is not None:
-			continue
-		image_input = image_input.to(Cfg.device)
+	tqdmloader = tqdm(dataloader, desc='Image Alignment') if Cfg.is_master else dataloader
+
+	for batch in tqdmloader:
+		image_input = batch['image_emb']
+		image_input = image_input.to(Cfg.device, non_blocking=True)
 		
-		features = model.get_image_latent(features['vit_tokens'])
+		features = model.extract_clip_features(image=image_input)
 		if 'vit_tokens' not in features:
 			continue
 		
-		S_img = model.extract_clip_features(image=image_input)
+		S_img = model.get_image_latent(features['vit_tokens'])
 		S_img_pool = F.normalize(S_img.mean(dim=1), dim=-1)
 		T_image = features['T_image']
 		
-		loss = 1.0 - (S_img_pool * T_image).sum(dim=-1).mean()
+		loss_sim = 1.0 - (S_img_pool * T_image).sum(dim=-1).mean()
 		
 		optimizer.zero_grad()
-		loss.backward()
+		loss_sim.backward()
 		optimizer.step()
 		
 		if Cfg.is_master:
-			print(f'    Step {i} Image Loss: {loss.item():.4f}')
+			tqdmloader.set_postfix({'LossSim': loss_sim.item()})
 	
-	if Cfg.is_master:
-		print('Discriminator Init...')
 	set_freeze([model.text_adapter, model.image_adapter], True)
 	set_freeze([model.discriminator], False)
 	
-	for i, batch in enumerate(dataloader):
-		text_input = batch.get('text_emb', None)
-		image_input = batch.get('image', None)
-		
-		if text_input is None or image_input is None:
-			continue
-		
-		text_input = text_input.to(Cfg.device)
-		image_input = image_input.to(Cfg.device)
+	tqdmloader = tqdm(dataloader, desc='Discriminator Warmup') if Cfg.is_master else dataloader
+
+	for batch in tqdmloader:
+		text_input = batch['text_emb']
+		image_input = batch['image_emb']
+		text_input = text_input.to(Cfg.device, non_blocking=True)
+		image_input = image_input.to(Cfg.device, non_blocking=True)
 		
 		with torch.no_grad():
 			features = model.extract_clip_features(image=image_input, text=text_input)
@@ -101,13 +95,13 @@ def train_warmup(
 		
 		loss_real = F.binary_cross_entropy(pred_real, torch.ones_like(pred_real))
 		loss_fake = F.binary_cross_entropy(pred_fake, torch.zeros_like(pred_fake))
-		loss = (loss_real + loss_fake) * 0.5
+		loss_disc = (loss_real + loss_fake) * 0.5
 		
 		optimizer.zero_grad()
-		loss.backward()
+		loss_disc.backward()
 		optimizer.step()
 		
 		if Cfg.is_master:
-			print(f'    Step {i} Disc Loss: {loss.item():.4f}')
-	
+			tqdmloader.set_postfix({'LossDisc': loss_disc.item()})
+		
 	set_freeze([model.text_adapter, model.image_adapter, model.discriminator], False)

@@ -282,9 +282,11 @@ class CocoDataset(DatasetBase):
 		dtype: DType,
 		clip_model: CLIP | None = None,
 		preprocess: Compose | None = None,
+		capacity: int = 1145141919810,
 	):
 		self.annotations = annotations
 		self.images_path = images_path
+		self.capacity = capacity
 		super().__init__(
 			cache_path,
 			dtype,
@@ -310,7 +312,7 @@ class CocoDataset(DatasetBase):
 				for img in data['images']
 			}
 		
-		for ann in data['annotations']:
+		for ann in data['annotations'][:self.capacity]:
 			if has_text:
 				self.texts.append(ann['caption'])
 			if has_image:
