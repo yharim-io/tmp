@@ -14,6 +14,6 @@ dataset.subset(4096)
 train(
 	dataset,
 	output_dir = Cfg.root/'data/yottacap/coco/',
-	epochs = 10,
+	epochs = 50,
     start_epoch = 0,
 )

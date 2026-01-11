@@ -19,7 +19,7 @@ class _Path:
 	clip_pretrained_path: Path = root/'data/clip/ViT-B-32.pt'
 
 class _Dist:
-	rank: int = int(os.environ.get('LOCAL_RANK', 0))
+	rank: int = int(os.environ.get('LOCAL_RANK', -1))
 	is_master: bool = rank == 0
 	device: torch.device = torch.device(f'cuda:{rank}')
 
