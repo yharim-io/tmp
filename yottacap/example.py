@@ -19,7 +19,7 @@ with logger('clip', 'loading'):
 
 with logger('yottacap', 'loading'):
 	yottacap_model = YottaCap()
-	weights = Cfg.root/'data/yottacap/coco/epoch_20.pt'
+	weights = Cfg.root/'data/yottacap/coco/epoch_14.pt'
 	if weights.exists():
 		yottacap_model.load_state_dict(
 			torch.load(weights, map_location='cpu', weights_only=True)
@@ -27,7 +27,7 @@ with logger('yottacap', 'loading'):
 	yottacap_model = yottacap_model.to('cuda')
 	yottacap_model.eval()
 
-for i in range(1, 4):
+for i in range(1, 8):
 	image_path = Cfg.root / f'data/example/{i}.jpg'
 	if image_path.exists():
 		text = image_to_text(

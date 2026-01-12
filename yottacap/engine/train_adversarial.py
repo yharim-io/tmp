@@ -2,6 +2,7 @@ import torch
 from torch import nn, Tensor
 from torch.nn import functional as F
 from torch.optim import Optimizer
+from torch.amp import autocast, GradScaler
 from tqdm import tqdm
 from pathlib import Path
 
@@ -12,7 +13,7 @@ def train_adversarial_step(
 	dataloader,
 	model: YottaCap,
 	text_optimizer: Optimizer,
-	img_optimizer: Optimizer,
+	image_optimizer: Optimizer,
 	disc_optimizer: Optimizer,
 	log_file: Path,
 ):
@@ -20,92 +21,106 @@ def train_adversarial_step(
 	
 	ce_loss_fn = nn.CrossEntropyLoss(ignore_index=0)
 	
+	scaler = GradScaler('cuda')
+	
 	tqdmloader = tqdm(dataloader, desc='Adversarial Training') if Cfg.is_master else dataloader
 
 	for batch in tqdmloader:
 		text_emb: Tensor = batch['text_emb'].to(Cfg.device, non_blocking=True)
 		image_emb: Tensor = batch['image_emb'].to(Cfg.device, non_blocking=True).float()
 		
-		features = model.extract_clip_features(text=text_emb)
+		with autocast('cuda'):
+			features = model.extract_clip_features(text=text_emb)
 		
 		# Micro-step 1: Text Adapter & Decoder
 
 		for __ in range(Cfg.micro_steps_iter[0]):
 		
-			S_text = model.get_text_latent(features['text_tokens']).to(Cfg.device, non_blocking=True)
-			
-			# 1. CE Loss
-			logits = model.forward(S_text, text_emb[:, :-1])
-			logits = logits[:, S_text.shape[1]:]
-			loss_ce = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
-			
-			# 2. KL Loss
-			loss_kl_text = (S_text.norm(dim=-1) - 1).pow(2).mean()
-			
-			# 3. Adversarial Loss (Fool D to think it's image)
-			pred_fake = model.discriminator(S_text)
-			loss_adv = F.binary_cross_entropy(pred_fake, torch.ones_like(pred_fake))
-			
-			loss_text = loss_ce + Cfg.kl_weight * loss_kl_text + Cfg.adv_weight * loss_adv
-			
+			with autocast('cuda'):
+		
+				S_text = model.get_text_latent(features['text_tokens']).to(Cfg.device, non_blocking=True)
+				
+				# 1. CE Loss
+				logits = model.forward(S_text, text_emb[:, :-1])
+				logits = logits[:, S_text.shape[1]:]
+				loss_ce: Tensor = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
+				
+				# 2. KL Loss
+				loss_kl_text = (S_text.norm(dim=-1) - 1).pow(2).mean()
+				
+				# 3. Adversarial Loss (Fool D to think it's image)
+				pred_fake_logits = model.discriminator(S_text)
+				loss_adv = F.binary_cross_entropy_with_logits(pred_fake_logits, torch.ones_like(pred_fake_logits))
+				
+				loss_text = loss_ce + Cfg.kl_weight * loss_kl_text + Cfg.adv_weight * loss_adv
+				
 			text_optimizer.zero_grad()
-			loss_text.backward()
-			text_optimizer.step()
+			scaler.scale(loss_text).backward()
+			scaler.step(text_optimizer)
+			scaler.update()
 		
 		# Micro-step 2: Image Adapter
 
 		for __ in range(Cfg.micro_steps_iter[1]):
 
-			S_img = model.get_image_latent(image_emb).to(Cfg.device, non_blocking=True)
-			
-			# SIM Loss
-			prefix = model.latent_proj(S_img)
-			logits_img = model.gpt2.forward_logits(prefix)
-			soft_embeds = model.gumbel_softmax(logits_img)
-			
-			T_text_recon = model.softemb_to_clip(soft_embeds).to(Cfg.device, non_blocking=True)
-			T_text_recon = F.normalize(T_text_recon, dim=-1)
-			
-			T_image: Tensor = batch['image_feat'].to(Cfg.device, non_blocking=True).float()
-			T_image = F.normalize(T_image, dim=-1)
+			with autocast('cuda'):
 
-			loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
+				S_img = model.get_image_latent(image_emb).to(Cfg.device, non_blocking=True)
 			
-			# KL Loss
-			loss_kl_img = (S_img.norm(dim=-1) - 1).pow(2).mean()
-			
-			loss_img = loss_sim + Cfg.kl_weight * loss_kl_img
+				# SIM Loss
+				prefix = model.latent_proj(S_img)
+				logits_img = model.gpt2.forward_logits(prefix)
+				soft_embeds = model.gumbel_softmax(logits_img)
+				
+				T_text_recon = model.softemb_to_clip(soft_embeds).to(Cfg.device, non_blocking=True)
+				T_text_recon = F.normalize(T_text_recon, dim=-1)
+				
+				T_image: Tensor = batch['image_feat'].to(Cfg.device, non_blocking=True).float()
+				T_image = F.normalize(T_image, dim=-1)
 
-			img_optimizer.zero_grad()
-			loss_img.backward()
-			img_optimizer.step()
+				loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
+				
+				# KL Loss
+				loss_kl_img = (S_img.norm(dim=-1) - 1).pow(2).mean()
+				
+				loss_img = loss_sim + Cfg.kl_weight * loss_kl_img
+
+			image_optimizer.zero_grad()
+			scaler.scale(loss_img).backward()
+			scaler.step(image_optimizer)
+			scaler.update()
 		
 		# Micro-step 3: Train Discriminator
 
 		for __ in range(Cfg.micro_steps_iter[2]):
-		
-			S_img_det = S_img.detach()
-			S_text_det = S_text.detach()
 			
-			pred_real = model.discriminator(S_img_det)
-			pred_fake = model.discriminator(S_text_det)
+			with autocast('cuda'):
 			
-			loss_d_real = F.binary_cross_entropy(pred_real, torch.ones_like(pred_real))
-			loss_d_fake = F.binary_cross_entropy(pred_fake, torch.zeros_like(pred_fake))
-			loss_disc = (loss_d_real + loss_d_fake) * 0.5
+				S_img_det = S_img.detach()
+				S_text_det = S_text.detach()
+				
+				pred_real_logits = model.discriminator(S_img_det)
+				pred_fake_logits = model.discriminator(S_text_det)
+				
+				loss_d_real = F.binary_cross_entropy_with_logits(pred_real_logits, torch.ones_like(pred_real_logits))
+				loss_d_fake = F.binary_cross_entropy_with_logits(pred_fake_logits, torch.zeros_like(pred_fake_logits))
+				loss_disc = (loss_d_real + loss_d_fake) * 0.5
 			
 			disc_optimizer.zero_grad()
-			loss_disc.backward()
-			disc_optimizer.step()
+			scaler.scale(loss_disc).backward()
+			scaler.step(disc_optimizer)
+			scaler.update()
 		
 		if Cfg.is_master:
 			tqdmloader.set_postfix({
-				'LossText': loss_text.item(),
+				# 'LossText': loss_text.item(),
 				'LossImg': loss_img.item(),
-				'LossDisc': loss_disc.item(),
+				# 'LossDisc': loss_disc.item(),
 			})
-			
-			with open(log_file, 'a+') as f:
-				f.writelines(f'\n\tLossText: {loss_text:.3f}, CE: {loss_ce:.3f}, TextKL: {loss_kl_text:.3f}, ADV: {loss_adv:.3f}')
-				f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_sim:.3f}, ImageKL: {loss_kl_img:.3f}')
-				f.writelines(f'\n\tLossDisc: {loss_disc:.3f}\n')
+	
+	if Cfg.is_master:
+		with open(log_file, 'a+') as f:
+			# f.writelines(f'\n\tLossText: {loss_text:.3f}, CE: {loss_ce:.3f}, TextKL: {loss_kl_text:.3f}, ADV: {loss_adv:.3f}')
+			f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_sim:.3f}, ImageKL: {loss_kl_img:.3f}')
+			# f.writelines(f'\n\tLossDisc: {loss_disc:.3f}')
+			f.writelines('\n')

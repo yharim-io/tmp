@@ -68,7 +68,7 @@ def train(
 	]
 	warmup_image_optimizer: Optimizer = AdamW(warmup_image_params, lr=Cfg.learning_rate)
 	
-	warmup_disc_params = yottacap_model.discriminator.parameters()
+	warmup_disc_params = yottacap_model.module.discriminator.parameters()
 	warmup_disc_optimizer: Optimizer = AdamW(warmup_disc_params, lr=Cfg.learning_rate)
 	
 	# Adversarial Optimizer
@@ -86,7 +86,9 @@ def train(
 	dataloader = DataLoader(
 		dataset,
 		batch_size=Cfg.batch_size,
-		shuffle=True
+		shuffle=True,
+		num_workers=8,
+		pin_memory=True
 	)
 	
 	for epoch in range(start_epoch, epochs + start_epoch):

@@ -39,7 +39,7 @@ with logger('decap', 'loading'):
 	decap_model = DeCap()
 	decap_model.load_state_dict(
 		torch.load(
-			Cfg.root/'data/decap/text_image/coco/002.pt',
+			Cfg.root/'data/decap/text_image/coco/001.pt',
 			map_location=torch.device('cpu'),
 			weights_only=True
 		)

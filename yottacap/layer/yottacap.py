@@ -19,7 +19,7 @@ class YottaCap(nn.Module):
 		
 		self.image_adapter = ImageAdapter()
 		self.text_adapter = TextAdapter()
-		self.discriminator = Discriminator(Cfg.latent_dim)
+		self.discriminator = Discriminator(Cfg.latent_dim, Cfg.latent_seq_len)
 		self.gpt2 = GPT2()
 		
 		if Cfg.latent_dim != self.gpt2.emb_size:
