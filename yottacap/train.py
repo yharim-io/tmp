@@ -9,11 +9,12 @@ dataset = CocoDataset(
 	dtype = DType.TEXT_EMB | DType.TEXT_FEAT | DType.IMAGE_EMB | DType.IMAGE_FEAT,
 )
 
-dataset.subset(4096)
+# dataset.subset(2048)
 
 train(
 	dataset,
 	output_dir = Cfg.root/'data/yottacap/coco/',
 	epochs = 50,
-    start_epoch = 0,
+    start_epoch = 4,
+    init_weights = Cfg.root/'data/yottacap/coco/epoch_3.pt',
 )

@@ -50,7 +50,7 @@ def train(
 	img_optimizer = AdamW(main_params, lr=Cfg.learning_rate)
 
 	disc_params = yottacap_model.module.discriminator.parameters()
-	disc_optimizer = AdamW(disc_params, lr=Cfg.discriminator_lr)
+	disc_optimizer = AdamW(disc_params, lr=Cfg.discriminator_learning_rate)
 	
 	dataloader = DataLoader(
 		dataset, batch_size=Cfg.batch_size, shuffle=True
@@ -62,7 +62,7 @@ def train(
 			train_warmup(dataloader, yottacap_model.module)
 		else:
 			if Cfg.is_master: print(f"--- Epoch {epoch}: Adversarial ---")
-			train_adversarial(dataloader, yottacap_model, text_optimizer, img_optimizer, disc_optimizer)
+			train_adversarial(dataloader, yottacap_model.module, text_optimizer, img_optimizer, disc_optimizer)
 			
 		if Cfg.is_master:
 			if not output_dir.exists(): output_dir.mkdir(parents=True)

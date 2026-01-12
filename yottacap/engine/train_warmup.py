@@ -56,7 +56,7 @@ def train_warmup(
 		
 		if Cfg.is_master:
 			tqdmloader.set_postfix({
-				'LossText': loss_text.item(),
+				'Loss': loss_text.item(),
 				'LossCE': loss_ce.item(),
 				'LossKL': loss_kl.item(),
 			})
@@ -73,18 +73,20 @@ def train_warmup(
 
 	for batch in tqdmloader:
 		image_emb = batch['image_emb']
-		image_emb = image_emb.to(Cfg.device, non_blocking=True)
+		image_emb = image_emb.to(Cfg.device, non_blocking=True).float()
 		
-		S_img: Tensor = model.get_image_latent(image_emb)
-		T_image: Tensor = batch['image_feat']
+		S_img: Tensor = model.get_image_latent(image_emb).to(Cfg.device, non_blocking=True)
 		
 		# SIM LOSS
 		prefix = model.latent_proj(S_img)
 		logits_img = model.gpt2.forward_logits(prefix)
 		soft_embeds = model.gumbel_softmax(logits_img)
 		
-		T_text_recon: Tensor = model.project_to_clip(soft_embeds)
+		T_text_recon: Tensor = model.softemb_to_clip(soft_embeds).to(Cfg.device, non_blocking=True)
 		T_text_recon = F.normalize(T_text_recon, dim=-1)
+
+		T_image: Tensor = batch['image_feat'].to(Cfg.device, non_blocking=True)
+		T_image = F.normalize(T_image, dim=-1)
 		
 		loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
 		
@@ -99,7 +101,7 @@ def train_warmup(
 		
 		if Cfg.is_master:
 			tqdmloader.set_postfix({
-				'LossImg': loss_img.item(),
+				'Loss': loss_img.item(),
 				'LossSim': loss_sim.item(),
 				'LossKL': loss_kl.item(),
 			})
@@ -111,10 +113,8 @@ def train_warmup(
 	tqdmloader = tqdm(dataloader, desc='Discriminator Warmup') if Cfg.is_master else dataloader
 
 	for batch in tqdmloader:
-		text_emb = batch['text_emb']
-		image_emb = batch['image_emb']
-		text_emb = text_emb.to(Cfg.device, non_blocking=True)
-		image_emb = image_emb.to(Cfg.device, non_blocking=True)
+		text_emb = batch['text_emb'].to(Cfg.device, non_blocking=True)
+		image_emb = batch['image_emb'].to(Cfg.device, non_blocking=True).float()
 		
 		with torch.no_grad():
 			features = model.extract_clip_features(text=text_emb)

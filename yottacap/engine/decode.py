@@ -19,7 +19,7 @@ def image_to_text(
 	model.eval()
 	
 	image = Image.open(image_path)
-	image_tensor = preprocess(image).unsequeeze(0).to(Cfg.device)
+	image_tensor = preprocess(image).unsqueeze(0).to(Cfg.device)
 	
 	feats = model.extract_clip_features(image=image_tensor)
 	S_img = model.get_image_latent(feats['vit_tokens'])

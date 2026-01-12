@@ -13,12 +13,14 @@ class _Model:
 	max_seq_length: int = 30
 
 class _Schedule:
-	discriminator_lr: float = 1e-4
+	discriminator_learning_rate: float = 1e-4
 	warmup_epochs: int = 5
-	factor: int = 8
+	factor: int = 6
 	batch_size: int = 32 * factor
 	learning_rate: float = 1e-5 * factor
 	warmup_steps: int = 1000 // factor
+
+	micro_steps_iter: list[int] = [1, 4, 16]
 
 class Config(ConfigBase, _Model, _Schedule):
 	pass

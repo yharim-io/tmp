@@ -19,7 +19,7 @@ with logger('clip', 'loading'):
 
 with logger('yottacap', 'loading'):
 	yottacap_model = YottaCap()
-	weights = Cfg.root/'data/yottacap/coco/epoch_19.pt'
+	weights = Cfg.root/'data/yottacap/coco/epoch_20.pt'
 	if weights.exists():
 		yottacap_model.load_state_dict(
 			torch.load(weights, map_location='cpu', weights_only=True)

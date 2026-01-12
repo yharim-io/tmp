@@ -21,18 +21,16 @@ def train_adversarial(
 	tqdmloader = tqdm(dataloader, desc='Adversarial Training') if Cfg.is_master else dataloader
 
 	for batch in tqdmloader:
-		text_emb = batch['text_emb']
-		image_emb = batch['image_emb']
-		T_image = batch['image_feat']
-		text_emb = text_emb.to(Cfg.device, non_blocking=True)
-		image_emb = image_emb.to(Cfg.device, non_blocking=True)
-		T_image = T_image.to(Cfg.device, non_blocking=True)
+		text_emb: Tensor = batch['text_emb'].to(Cfg.device, non_blocking=True)
+		image_emb: Tensor = batch['image_emb'].to(Cfg.device, non_blocking=True).float()
 		
 		features = model.extract_clip_features(text=text_emb)
 		
-		with 'Micro-step 1': # Micro-step 1: Text Adapter & Decoder
+		# Micro-step 1: Text Adapter & Decoder
+
+		for __ in range(Cfg.micro_steps_iter[0]):
 		
-			S_text = model.get_text_latent(features['text_tokens'])
+			S_text = model.get_text_latent(features['text_tokens']).to(Cfg.device, non_blocking=True)
 			
 			# 1. CE Loss
 			logits = model.forward(S_text, text_emb[:, :-1])
@@ -52,19 +50,26 @@ def train_adversarial(
 			loss_text.backward()
 			text_optimizer.step()
 		
-		with 'Micro-step 2': # Micro-step 2: Image Adapter
+		# Micro-step 2: Image Adapter
 
-			S_img = model.get_image_latent(image_emb)
+		for __ in range(Cfg.micro_steps_iter[1]):
+
+			S_img = model.get_image_latent(image_emb).to(Cfg.device, non_blocking=True)
 			
+			# SIM LOSS
 			prefix = model.latent_proj(S_img)
 			logits_img = model.gpt2.forward_logits(prefix)
 			soft_embeds = model.gumbel_softmax(logits_img)
 			
-			T_text_recon = model.project_to_clip(soft_embeds)
+			T_text_recon = model.softemb_to_clip(soft_embeds).to(Cfg.device, non_blocking=True)
 			T_text_recon = F.normalize(T_text_recon, dim=-1)
 			
+			T_image: Tensor = batch['image_feat'].to(Cfg.device, non_blocking=True).float()
+			T_image = F.normalize(T_image, dim=-1)
+
 			loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
 			
+			# KL LOSS
 			loss_kl = S_img.pow(2).mean()
 			
 			loss_img = loss_sim + Cfg.kl_weight * loss_kl
@@ -73,7 +78,9 @@ def train_adversarial(
 			loss_img.backward()
 			img_optimizer.step()
 		
-		with 'Micro-step 3': # Micro-step 3: Train Discriminator
+		# Micro-step 3: Train Discriminator
+
+		for __ in range(Cfg.micro_steps_iter[2]):
 		
 			S_img_det = S_img.detach()
 			S_text_det = S_text.detach()

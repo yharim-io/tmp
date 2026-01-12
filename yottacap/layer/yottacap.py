@@ -7,7 +7,6 @@ from clip.model import CLIP
 from .adapter import ImageAdapter, TextAdapter
 from .discriminator import Discriminator
 from .gpt2 import GPT2
-from .mlp import MLP
 from yottacap.config import Cfg
 
 class YottaCap(nn.Module):
@@ -68,20 +67,58 @@ class YottaCap(nn.Module):
 		emb_cat = torch.cat([prefix, text_emb], dim=1)
 		return self.gpt2.forward_logits(emb_cat)
 	
-	def gumbel_softmax(self, logits: Tensor, temperature: float) -> Tensor:
-		# 1. Gumbel Noise
+	def gumbel_softmax(self, logits: Tensor, temperature: float = 1.0) -> Tensor:
+		# 1. Gumbel Noise (Reparameterization Trick)
 		gumbel_noise = -torch.log(-torch.log(torch.rand_like(logits) + 1e-10) + 1e-10)
 		y = logits + gumbel_noise
 		
-		# 2. Softmax
+		# 2. Softmax (Approximating discrete argmax)
 		soft_one_hot = F.softmax(y / temperature, dim=-1) # (B, S, V)
 		
-		# 3. Multiply with Embedding Matrix
-		# GPT2 embedding weight: (V, D)
-		# (B, S, V) @ (V, D) -> (B, S, D)
-		soft_embeds = soft_one_hot @ self.gpt2.core.wte.weight
-		return soft_embeds
+		# 3. Soft Lookup in CLIP's Embedding Table
+		vocab_size = self.clip_model.token_embedding.weight.shape[0]
+		if soft_one_hot.shape[-1] > vocab_size:
+			soft_one_hot = soft_one_hot[..., :vocab_size]
+			
+		soft_clip_embeds = soft_one_hot @ self.clip_model.token_embedding.weight.float()
+		return soft_clip_embeds
 	
-	def project_to_clip(self, soft_embeds: Tensor) -> Tensor:
-		pooled = soft_embeds.mean(dim=1)
-		return pooled @ self.clip_model.text_projection
+	def softemb_to_clip(self, soft_embeds: Tensor) -> Tensor:
+		# soft_embeds: (Batch, Seq, 512)
+		batch_size, seq_len, dim = soft_embeds.shape
+		target_len = self.clip_model.context_length  # 77
+		
+		# 1. Padding 到 77 (CLIP 标准长度)
+		if seq_len < target_len:
+			# 补零是安全的，因为 Causal Mask 会保证前面的 Token 看不到后面的 Padding
+			padding = torch.zeros(batch_size, target_len - seq_len, dim, device=soft_embeds.device)
+			x = torch.cat([soft_embeds, padding], dim=1) # (B, 77, D)
+		else:
+			x = soft_embeds[:, :target_len, :]
+			
+		# 2. 注入位置编码
+		x = x + self.clip_model.positional_embedding.float()
+		
+		# 3. 维度调整 (B, S, D) -> (S, B, D)
+		x = x.permute(1, 0, 2)
+		
+		# 4. 通过 CLIP Transformer (自动使用内置 Causal Mask)
+		x = self.clip_model.transformer(x)
+		
+		# 5. 还原维度 (S, B, D) -> (B, S, D)
+		x = x.permute(1, 0, 2)
+		
+		# 6. Layer Norm
+		x = self.clip_model.ln_final(x)
+		
+		# 7. 截取回原始长度，丢弃 Padding 部分
+		x = x[:, :seq_len, :]
+		
+		# 8. Mean Pooling (直接平均)
+		# 你的要求：简单直接，利于收敛
+		pooled = x.mean(dim=1) 
+		
+		# 9. 投影到联合空间
+		features = pooled @ self.clip_model.text_projection.float()
+		
+		return features
