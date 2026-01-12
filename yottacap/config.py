@@ -2,6 +2,7 @@ from utils.config import Config as ConfigBase
 
 class _Model:
 	latent_dim: int = 768
+	latent_seq_len: int = 10
 	adapter_depth: int = 4
 	adapter_heads: int = 8
 	text_mask_ratio: float = 0.3
@@ -15,7 +16,7 @@ class _Model:
 class _Schedule:
 	discriminator_learning_rate: float = 1e-4
 	warmup_epochs: int = 5
-	factor: int = 6
+	factor: int = 10
 	batch_size: int = 32 * factor
 	learning_rate: float = 1e-5 * factor
 	warmup_steps: int = 1000 // factor

@@ -2,7 +2,6 @@ import torch
 from torch import nn, Tensor
 from torch.nn import functional as F
 import clip
-from clip.model import CLIP
 
 from .adapter import ImageAdapter, TextAdapter
 from .discriminator import Discriminator
@@ -79,46 +78,42 @@ class YottaCap(nn.Module):
 		vocab_size = self.clip_model.token_embedding.weight.shape[0]
 		if soft_one_hot.shape[-1] > vocab_size:
 			soft_one_hot = soft_one_hot[..., :vocab_size]
-			
+		
 		soft_clip_embeds = soft_one_hot @ self.clip_model.token_embedding.weight.float()
 		return soft_clip_embeds
 	
 	def softemb_to_clip(self, soft_embeds: Tensor) -> Tensor:
 		# soft_embeds: (Batch, Seq, 512)
 		batch_size, seq_len, dim = soft_embeds.shape
-		target_len = self.clip_model.context_length  # 77
+		target_len = self.clip_model.context_length
 		
-		# 1. Padding 到 77 (CLIP 标准长度)
-		if seq_len < target_len:
-			# 补零是安全的，因为 Causal Mask 会保证前面的 Token 看不到后面的 Padding
-			padding = torch.zeros(batch_size, target_len - seq_len, dim, device=soft_embeds.device)
-			x = torch.cat([soft_embeds, padding], dim=1) # (B, 77, D)
-		else:
-			x = soft_embeds[:, :target_len, :]
+		# 1. 准备 EOT Embedding
+		eot_token = torch.tensor([Cfg.eos_token_id], device=soft_embeds.device)
+		eot_emb = self.clip_model.token_embedding(eot_token).float()
+		eot_emb = eot_emb.unsqueeze(0).expand(batch_size, -1, -1) # (B, 1, D)
+		
+		# 2. 拼接: [Soft_Tokens, EOT]
+		x = torch.cat([soft_embeds, eot_emb], dim=1)
+		curr_len = x.shape[1]
+		eot_idx = seq_len
+		
+		# 3. 长度处理 (Padding 或 Truncate)
+		if curr_len < target_len:
+			padding = torch.zeros(batch_size, target_len - curr_len, dim, device=soft_embeds.device)
+			x = torch.cat([x, padding], dim=1)
+		elif curr_len > target_len:
+			x = x[:, :target_len, :]
+			# 强制将最后一位覆盖为 EOT，确保聚合点存在
+			x[:, target_len - 1, :] = eot_emb.squeeze(1)
+			eot_idx = target_len - 1
 			
-		# 2. 注入位置编码
+		# 4. CLIP Forward
 		x = x + self.clip_model.positional_embedding.float()
-		
-		# 3. 维度调整 (B, S, D) -> (S, B, D)
 		x = x.permute(1, 0, 2)
-		
-		# 4. 通过 CLIP Transformer (自动使用内置 Causal Mask)
 		x = self.clip_model.transformer(x)
-		
-		# 5. 还原维度 (S, B, D) -> (B, S, D)
 		x = x.permute(1, 0, 2)
-		
-		# 6. Layer Norm
 		x = self.clip_model.ln_final(x)
 		
-		# 7. 截取回原始长度，丢弃 Padding 部分
-		x = x[:, :seq_len, :]
-		
-		# 8. Mean Pooling (直接平均)
-		# 你的要求：简单直接，利于收敛
-		pooled = x.mean(dim=1) 
-		
-		# 9. 投影到联合空间
-		features = pooled @ self.clip_model.text_projection.float()
-		
+		# 5. 提取 EOT 特征并投影
+		features = x[:, eot_idx, :] @ self.clip_model.text_projection.float()
 		return features

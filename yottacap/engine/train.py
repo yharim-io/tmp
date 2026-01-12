@@ -1,5 +1,6 @@
 import torch
 import torch.distributed as dist
+from torch.optim import Optimizer
 from torch.utils.data import DataLoader
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
@@ -42,12 +43,31 @@ def train(
 		output_device=Cfg.rank
 	)
 	
+	# Warmup Optimizer
+	
+	warmup_text_params = [
+		p for n, p in yottacap_model.named_parameters()
+		if 'image_adapter' not in n and 'discriminator' not in n
+	]
+	warmup_text_optimizer: Optimizer = AdamW(warmup_text_params, lr=Cfg.learning_rate)
+	
+	warmup_image_params = [
+		p for n, p in yottacap_model.named_parameters()
+		if 'text_adapter' not in n and 'discriminator' not in n
+	]
+	warmup_image_optimizer: Optimizer = AdamW(warmup_image_params, lr=Cfg.learning_rate)
+	
+	warmup_disc_params = yottacap_model.discriminator.parameters()
+	warmup_disc_optimizer: Optimizer = AdamW(warmup_disc_params, lr=Cfg.learning_rate)
+	
+	# Adversarial Optimizer
+	
 	main_params = [
 		p for n, p in yottacap_model.named_parameters()
 		if 'discriminator' not in n
 	]
 	text_optimizer = AdamW(main_params, lr=Cfg.learning_rate)
-	img_optimizer = AdamW(main_params, lr=Cfg.learning_rate)
+	image_optimizer = AdamW(main_params, lr=Cfg.learning_rate)
 
 	disc_params = yottacap_model.module.discriminator.parameters()
 	disc_optimizer = AdamW(disc_params, lr=Cfg.discriminator_learning_rate)
@@ -59,10 +79,22 @@ def train(
 	for epoch in range(start_epoch, epochs + start_epoch):
 		if epoch < Cfg.warmup_epochs:
 			if Cfg.is_master: print(f"--- Epoch {epoch}: Warmup ---")
-			train_warmup(dataloader, yottacap_model.module)
+			train_warmup(
+				dataloader=dataloader, 
+				model=yottacap_model.module,
+				text_optimizer=warmup_text_optimizer,
+				image_optimizer=warmup_image_optimizer,
+				disc_optimizer=warmup_disc_optimizer
+			)
 		else:
 			if Cfg.is_master: print(f"--- Epoch {epoch}: Adversarial ---")
-			train_adversarial(dataloader, yottacap_model.module, text_optimizer, img_optimizer, disc_optimizer)
+			train_adversarial(
+				dataloader=dataloader,
+				model=yottacap_model.module,
+				text_optimizer=text_optimizer,
+				image_optimizer=image_optimizer,
+				disc_optimizer=disc_optimizer
+			)
 			
 		if Cfg.is_master:
 			if not output_dir.exists(): output_dir.mkdir(parents=True)

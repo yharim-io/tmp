@@ -38,7 +38,7 @@ def train_adversarial(
 			loss_ce = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
 			
 			# 2. KL Loss
-			loss_kl = S_text.pow(2).mean()
+			loss_kl = (S_text.norm(dim=-1) - 1).pow(2).mean()
 			
 			# 3. Adversarial Loss (Fool D to think it's image)
 			pred_fake = model.discriminator(S_text)
@@ -56,7 +56,7 @@ def train_adversarial(
 
 			S_img = model.get_image_latent(image_emb).to(Cfg.device, non_blocking=True)
 			
-			# SIM LOSS
+			# SIM Loss
 			prefix = model.latent_proj(S_img)
 			logits_img = model.gpt2.forward_logits(prefix)
 			soft_embeds = model.gumbel_softmax(logits_img)
@@ -69,8 +69,8 @@ def train_adversarial(
 
 			loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
 			
-			# KL LOSS
-			loss_kl = S_img.pow(2).mean()
+			# KL Loss
+			loss_kl = (S_img.norm(dim=-1) - 1).pow(2).mean()
 			
 			loss_img = loss_sim + Cfg.kl_weight * loss_kl
 

@@ -11,6 +11,9 @@ from yottacap.config import Cfg
 def train_warmup(
 	dataloader,
 	model: YottaCap,
+	text_optimizer: Optimizer,
+	image_optimizer: Optimizer,
+	disc_optimizer: Optimizer,
 ):
 	model.train()
 	ce_loss_fn = nn.CrossEntropyLoss(ignore_index=0)
@@ -22,11 +25,6 @@ def train_warmup(
 	
 	set_freeze([model.image_adapter, model.discriminator], True)
 	set_freeze([model.text_adapter], False)
-	main_params = [
-		p for n, p in model.named_parameters()
-		if 'image_adapter' not in n and 'discriminator' not in n
-	]
-	optimizer: Optimizer = AdamW(main_params, lr=Cfg.learning_rate)
 
 	tqdmloader = tqdm(dataloader, desc='Text Priming') if Cfg.is_master else dataloader
 	
@@ -37,22 +35,22 @@ def train_warmup(
 		features = model.extract_clip_features(text=text_emb)
 		if 'text_tokens' not in features:
 			continue
-			
+		
 		S_text: Tensor = model.get_text_latent(features['text_tokens'])
 		
-		# CE LOSS
+		# CE Loss
 		logits = model.forward(S_text, text_emb[:, :-1])
 		logits = logits[:, S_text.shape[1]:]
 		loss_ce = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
 		
-		# KL LOSS
-		loss_kl = S_text.pow(2).mean()
+		# KL Loss
+		loss_kl = (S_text.norm(dim=-1) - 1).pow(2).mean()
 		
 		loss_text = loss_ce + Cfg.kl_weight * loss_kl
 		
-		optimizer.zero_grad()
+		text_optimizer.zero_grad()
 		loss_text.backward()
-		optimizer.step()
+		text_optimizer.step()
 		
 		if Cfg.is_master:
 			tqdmloader.set_postfix({
@@ -63,11 +61,6 @@ def train_warmup(
 
 	set_freeze([model.text_adapter, model.discriminator], True)
 	set_freeze([model.image_adapter], False)
-	main_params = [
-		p for n, p in model.named_parameters()
-		if 'text_adapter' not in n and 'discriminator' not in n
-	]
-	optimizer: Optimizer = AdamW(main_params, lr=Cfg.learning_rate)
 
 	tqdmloader = tqdm(dataloader, desc='Image Alignment') if Cfg.is_master else dataloader
 
@@ -76,8 +69,8 @@ def train_warmup(
 		image_emb = image_emb.to(Cfg.device, non_blocking=True).float()
 		
 		S_img: Tensor = model.get_image_latent(image_emb).to(Cfg.device, non_blocking=True)
-		
-		# SIM LOSS
+
+		# SIM Loss
 		prefix = model.latent_proj(S_img)
 		logits_img = model.gpt2.forward_logits(prefix)
 		soft_embeds = model.gumbel_softmax(logits_img)
@@ -90,14 +83,14 @@ def train_warmup(
 		
 		loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
 		
-		# KL LOSS
-		loss_kl = S_img.pow(2).mean()
-			
+		# KL Loss
+		loss_kl = (S_img.norm(dim=-1) - 1).pow(2).mean()
+		
 		loss_img = loss_sim + Cfg.kl_weight * loss_kl
 		
-		optimizer.zero_grad()
+		image_optimizer.zero_grad()
 		loss_img.backward()
-		optimizer.step()
+		image_optimizer.step()
 		
 		if Cfg.is_master:
 			tqdmloader.set_postfix({
@@ -108,7 +101,6 @@ def train_warmup(
 	
 	set_freeze([model.text_adapter, model.image_adapter], True)
 	set_freeze([model.discriminator], False)
-	optimizer: Optimizer = AdamW(model.discriminator.parameters(), lr=Cfg.learning_rate)
 	
 	tqdmloader = tqdm(dataloader, desc='Discriminator Warmup') if Cfg.is_master else dataloader
 
@@ -131,9 +123,9 @@ def train_warmup(
 		loss_fake = F.binary_cross_entropy(pred_fake, torch.zeros_like(pred_fake))
 		loss_disc = (loss_real + loss_fake) * 0.5
 		
-		optimizer.zero_grad()
+		disc_optimizer.zero_grad()
 		loss_disc.backward()
-		optimizer.step()
+		disc_optimizer.step()
 		
 		if Cfg.is_master:
 			tqdmloader.set_postfix({'LossDisc': loss_disc.item()})

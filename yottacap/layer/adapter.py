@@ -7,15 +7,27 @@ from .transformer_stack import TransformerStack
 class AdapterBase(nn.Module):
 	def __init__(self):
 		super().__init__()
+		self.target_len = Cfg.latent_seq_len
+		
 		self.transformer = TransformerStack(
-			dim = Cfg.latent_dim,
-			num_heads = Cfg.adapter_heads,
-			num_layers = Cfg.adapter_depth,
+			dim=Cfg.latent_dim,
+			num_heads=Cfg.adapter_heads,
+			num_layers=Cfg.adapter_depth,
 		)
+		
+		self.latent_queries = nn.Parameter(torch.randn(1, self.target_len, Cfg.latent_dim))
+		nn.init.normal_(self.latent_queries, std=0.02)
+
+	def forward_reduce(self, x: Tensor) -> Tensor:
+		B = x.shape[0]
+		queries = self.latent_queries.expand(B, -1, -1)
+		combined_seq = torch.cat([x, queries], dim=1)
+		out = self.transformer(combined_seq)
+		return out[:, -self.target_len:, :]
 
 class ImageAdapter(AdapterBase):
 	def forward(self, features: Tensor) -> Tensor:
-		return self.transformer(features)
+		return self.forward_reduce(features)
 
 class TextAdapter(AdapterBase):
 	def __init__(self):
@@ -33,4 +45,4 @@ class TextAdapter(AdapterBase):
 	def forward(self, features: Tensor) -> Tensor:
 		x = self.project(features)
 		masked_x = self.random_mask(x)
-		return self.transformer(masked_x)
+		return self.forward_reduce(masked_x)
