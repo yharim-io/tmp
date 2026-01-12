@@ -2,18 +2,19 @@ import torch
 from torch import nn, Tensor
 from torch.nn import functional as F
 from torch.optim import Optimizer
-from torch.optim import AdamW
 from tqdm import tqdm
+from pathlib import Path
 
 from yottacap.layer.yottacap import YottaCap
 from yottacap.config import Cfg
 
-def train_warmup(
+def train_warmup_step(
 	dataloader,
 	model: YottaCap,
 	text_optimizer: Optimizer,
 	image_optimizer: Optimizer,
 	disc_optimizer: Optimizer,
+	log_file: Path,
 ):
 	model.train()
 	ce_loss_fn = nn.CrossEntropyLoss(ignore_index=0)
@@ -44,9 +45,9 @@ def train_warmup(
 		loss_ce = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
 		
 		# KL Loss
-		loss_kl = (S_text.norm(dim=-1) - 1).pow(2).mean()
+		loss_kl_text = (S_text.norm(dim=-1) - 1).pow(2).mean()
 		
-		loss_text = loss_ce + Cfg.kl_weight * loss_kl
+		loss_text = loss_ce + Cfg.kl_weight * loss_kl_text
 		
 		text_optimizer.zero_grad()
 		loss_text.backward()
@@ -56,7 +57,7 @@ def train_warmup(
 			tqdmloader.set_postfix({
 				'Loss': loss_text.item(),
 				'LossCE': loss_ce.item(),
-				'LossKL': loss_kl.item(),
+				'LossKL': loss_kl_text.item(),
 			})
 
 	set_freeze([model.text_adapter, model.discriminator], True)
@@ -84,9 +85,9 @@ def train_warmup(
 		loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
 		
 		# KL Loss
-		loss_kl = (S_img.norm(dim=-1) - 1).pow(2).mean()
+		loss_kl_img = (S_img.norm(dim=-1) - 1).pow(2).mean()
 		
-		loss_img = loss_sim + Cfg.kl_weight * loss_kl
+		loss_img = loss_sim + Cfg.kl_weight * loss_kl_img
 		
 		image_optimizer.zero_grad()
 		loss_img.backward()
@@ -96,7 +97,7 @@ def train_warmup(
 			tqdmloader.set_postfix({
 				'Loss': loss_img.item(),
 				'LossSim': loss_sim.item(),
-				'LossKL': loss_kl.item(),
+				'LossKL': loss_kl_img.item(),
 			})
 	
 	set_freeze([model.text_adapter, model.image_adapter], True)
@@ -131,3 +132,9 @@ def train_warmup(
 			tqdmloader.set_postfix({'LossDisc': loss_disc.item()})
 		
 	set_freeze([model.text_adapter, model.image_adapter, model.discriminator], False)
+	
+	if Cfg.is_master:
+		with open(log_file, 'a+') as f:
+			f.writelines(f'\n\tLossText: {loss_text:.3f}, CE: {loss_ce:.3f}, TextKL: {loss_kl_text:.3f}')
+			f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_sim:.3f}, ImageKL: {loss_kl_img:.3f}')
+			f.writelines(f'\n\tLossDisc: {loss_disc:.3f}\n')

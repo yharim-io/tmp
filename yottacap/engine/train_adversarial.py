@@ -3,16 +3,18 @@ from torch import nn, Tensor
 from torch.nn import functional as F
 from torch.optim import Optimizer
 from tqdm import tqdm
+from pathlib import Path
 
 from yottacap.layer.yottacap import YottaCap
 from yottacap.config import Cfg
 
-def train_adversarial(
+def train_adversarial_step(
 	dataloader,
 	model: YottaCap,
 	text_optimizer: Optimizer,
 	img_optimizer: Optimizer,
 	disc_optimizer: Optimizer,
+	log_file: Path,
 ):
 	model.train()
 	
@@ -38,13 +40,13 @@ def train_adversarial(
 			loss_ce = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
 			
 			# 2. KL Loss
-			loss_kl = (S_text.norm(dim=-1) - 1).pow(2).mean()
+			loss_kl_text = (S_text.norm(dim=-1) - 1).pow(2).mean()
 			
 			# 3. Adversarial Loss (Fool D to think it's image)
 			pred_fake = model.discriminator(S_text)
 			loss_adv = F.binary_cross_entropy(pred_fake, torch.ones_like(pred_fake))
 			
-			loss_text = loss_ce + Cfg.kl_weight * loss_kl + Cfg.adv_weight * loss_adv
+			loss_text = loss_ce + Cfg.kl_weight * loss_kl_text + Cfg.adv_weight * loss_adv
 			
 			text_optimizer.zero_grad()
 			loss_text.backward()
@@ -70,9 +72,9 @@ def train_adversarial(
 			loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
 			
 			# KL Loss
-			loss_kl = (S_img.norm(dim=-1) - 1).pow(2).mean()
+			loss_kl_img = (S_img.norm(dim=-1) - 1).pow(2).mean()
 			
-			loss_img = loss_sim + Cfg.kl_weight * loss_kl
+			loss_img = loss_sim + Cfg.kl_weight * loss_kl_img
 
 			img_optimizer.zero_grad()
 			loss_img.backward()
@@ -102,3 +104,8 @@ def train_adversarial(
 				'LossImg': loss_img.item(),
 				'LossDisc': loss_disc.item(),
 			})
+			
+			with open(log_file, 'a+') as f:
+				f.writelines(f'\n\tLossText: {loss_text:.3f}, CE: {loss_ce:.3f}, TextKL: {loss_kl_text:.3f}, ADV: {loss_adv:.3f}')
+				f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_sim:.3f}, ImageKL: {loss_kl_img:.3f}')
+				f.writelines(f'\n\tLossDisc: {loss_disc:.3f}\n')
