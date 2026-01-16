@@ -10,12 +10,12 @@ dataset = CocoDataset(
 )
 
 # dataset.subset(2048)
-dataset.subset(len(dataset) // 2)
+dataset.subset(len(dataset) // 4)
 
 train(
 	dataset,
 	output_dir = Cfg.root/'data/yottacap/coco/',
 	epochs = 50,
-    start_epoch = 50,
-    init_weights = Cfg.root/'data/yottacap/coco/epoch_49.pt',
+    start_epoch = 0,
+    # init_weights = Cfg.root/'data/yottacap/coco/epoch_49.pt',
 )

@@ -20,7 +20,7 @@ class _Schedule:
 	learning_rate: float = 1e-5 * factor
 	warmup_steps: int = 1000 // factor
 
-	micro_steps_iter: list[int] = [0, 1, 0]
+	micro_steps_iter: list[int] = [1, 2, 8]
 
 class Config(ConfigBase, _Model, _Schedule):
 	pass

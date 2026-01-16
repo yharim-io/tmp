@@ -22,11 +22,6 @@ class YottaCap(nn.Module):
 		self.discriminator = Discriminator(Cfg.latent_dim, Cfg.latent_seq_len)
 		self.gpt2 = GPT2()
 		
-		if Cfg.latent_dim != self.gpt2.emb_size:
-			self.latent_proj = nn.Linear(Cfg.latent_dim, self.gpt2.emb_size)
-		else:
-			self.latent_proj = nn.Identity()
-		
 		self.feature_hook_data = {}
 		self._register_hooks()
 	
@@ -61,9 +56,8 @@ class YottaCap(nn.Module):
 		return self.text_adapter(text_tokens)
 
 	def forward(self, latents: Tensor, token_ids: Tensor) -> Tensor:
-		prefix = self.latent_proj(latents)
 		text_emb = self.gpt2.embed(token_ids)
-		emb_cat = torch.cat([prefix, text_emb], dim=1)
+		emb_cat = torch.cat([latents, text_emb], dim=1)
 		return self.gpt2.forward_logits(emb_cat)
 	
 	def gumbel_softmax(self, logits: Tensor, temperature: float = 1.0) -> Tensor:

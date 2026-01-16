@@ -9,6 +9,11 @@ from pathlib import Path
 from yottacap.layer.yottacap import YottaCap
 from yottacap.config import Cfg
 
+def set_freeze(modules: list[nn.Module], freeze: bool):
+	for mod in modules:
+		for p in mod.parameters():
+			p.requires_grad = not freeze
+
 def train_warmup_step(
 	dataloader,
 	model: YottaCap,
@@ -18,16 +23,13 @@ def train_warmup_step(
 	log_file: Path,
 ):
 	model.train()
+	model.clip_model.eval()
+	
 	ce_loss_fn = nn.CrossEntropyLoss(ignore_index=0)
 	scaler = GradScaler('cuda')
 	
-	def set_freeze(modules: list[nn.Module], freeze: bool):
-		for mod in modules:
-			for p in mod.parameters():
-				p.requires_grad = not freeze
-	
 	set_freeze([model.image_adapter, model.discriminator], True)
-	set_freeze([model.text_adapter], False)
+	set_freeze([model.text_adapter, model.gpt2], False)
 
 	tqdmloader = tqdm(dataloader, desc='Text Priming') if Cfg.is_master else dataloader
 	
@@ -62,7 +64,7 @@ def train_warmup_step(
 				'LossKL': loss_kl_text.item(),
 			})
 
-	set_freeze([model.text_adapter, model.discriminator], True)
+	set_freeze([model.text_adapter, model.gpt2, model.discriminator], True)
 	set_freeze([model.image_adapter], False)
 
 	tqdmloader = tqdm(dataloader, desc='Image Alignment') if Cfg.is_master else dataloader
@@ -75,8 +77,7 @@ def train_warmup_step(
 			S_img: Tensor = model.get_image_latent(image_emb).to(Cfg.device, non_blocking=True)
 
 			# SIM Loss
-			prefix = model.latent_proj(S_img)
-			logits_img = model.gpt2.forward_logits(prefix)
+			logits_img = model.gpt2.forward_logits(S_img)
 			soft_embeds = model.gumbel_softmax(logits_img)
 			
 			T_text_recon: Tensor = model.softemb_to_clip(soft_embeds).to(Cfg.device, non_blocking=True)
@@ -104,7 +105,7 @@ def train_warmup_step(
 				'LossKL': loss_kl_img.item(),
 			})
 	
-	set_freeze([model.text_adapter, model.image_adapter], True)
+	set_freeze([model.text_adapter, model.gpt2, model.image_adapter], True)
 	set_freeze([model.discriminator], False)
 	
 	tqdmloader = tqdm(dataloader, desc='Discriminator Warmup') if Cfg.is_master else dataloader

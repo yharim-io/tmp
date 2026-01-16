@@ -2,6 +2,7 @@ import torch
 import torch.distributed as dist
 from torch.optim import Optimizer
 from torch.utils.data import DataLoader
+from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 from pathlib import Path
@@ -24,7 +25,6 @@ def train(
 	start_epoch: int = 0,
 	init_weights: Path | None = None,
 ):
-	
 	log_dir = output_dir / 'log/'
 	
 	os.makedirs(output_dir, exist_ok=True)
@@ -54,46 +54,45 @@ def train(
 		output_device=Cfg.rank
 	)
 	
+	def list_params(names: list[str]) -> list[torch.nn.Parameter]:
+		return [
+			p for n, p in yottacap_model.named_parameters()
+			if any(name in n for name in names)
+		]
+	
+	text_params = list_params(['text_adapter', 'gpt2'])
+	image_params = list_params(['image_adapter'])
+	disc_params = list_params(['discriminator'])
+	
 	# Warmup Optimizer
-	
-	warmup_text_params = [
-		p for n, p in yottacap_model.named_parameters()
-		if 'image_adapter' not in n and 'discriminator' not in n
-	]
-	warmup_text_optimizer: Optimizer = AdamW(warmup_text_params, lr=Cfg.learning_rate)
-	
-	warmup_image_params = [
-		p for n, p in yottacap_model.named_parameters()
-		if 'text_adapter' not in n and 'discriminator' not in n
-	]
-	warmup_image_optimizer: Optimizer = AdamW(warmup_image_params, lr=Cfg.learning_rate)
-	
-	warmup_disc_params = yottacap_model.module.discriminator.parameters()
-	warmup_disc_optimizer: Optimizer = AdamW(warmup_disc_params, lr=Cfg.learning_rate)
+	warmup_text_optimizer: Optimizer = AdamW(text_params, lr=Cfg.learning_rate)
+	warmup_image_optimizer: Optimizer = AdamW(image_params, lr=Cfg.learning_rate)
+	warmup_disc_optimizer: Optimizer = AdamW(disc_params, lr=Cfg.learning_rate)
 	
 	# Adversarial Optimizer
 	
-	main_params = [
-		p for n, p in yottacap_model.named_parameters()
-		if 'discriminator' not in n
-	]
-	text_optimizer = AdamW(main_params, lr=Cfg.learning_rate)
-	image_optimizer = AdamW(main_params, lr=Cfg.learning_rate)
-
-	disc_params = yottacap_model.module.discriminator.parameters()
+	text_optimizer = AdamW(text_params, lr=Cfg.learning_rate)
+	image_optimizer = AdamW(image_params, lr=Cfg.learning_rate)
 	disc_optimizer = AdamW(disc_params, lr=Cfg.discriminator_learning_rate)
+	
+	sampler = DistributedSampler(dataset, shuffle=True)
 	
 	dataloader = DataLoader(
 		dataset,
+		sampler=sampler,
 		batch_size=Cfg.batch_size,
-		shuffle=True,
+		shuffle=False,
 		num_workers=8,
-		pin_memory=True
+		pin_memory=True,
 	)
 	
 	for epoch in range(start_epoch, epochs + start_epoch):
-		with open(log_file, 'a+') as f:
-			f.writelines(f'epoch {epoch}: ')
+		
+		sampler.set_epoch(epoch)
+		
+		if Cfg.is_master:
+			with open(log_file, 'a+') as f:
+				f.writelines(f'epoch {epoch}: ')
 		
 		if epoch < Cfg.warmup_epochs:
 			if Cfg.is_master: print(f"--- Epoch {epoch}: Warmup ---")
