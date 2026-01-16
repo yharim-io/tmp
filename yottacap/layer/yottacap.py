@@ -87,15 +87,19 @@ class YottaCap(nn.Module):
 		batch_size, seq_len, dim = soft_embeds.shape
 		target_len = self.clip_model.context_length
 		
-		# 1. 准备 EOT Embedding
+		# 1. 准备 SOT & EOT Embedding
+		sot_token = torch.tensor([Cfg.sot_token_id], device=soft_embeds.device)
+		sot_emb = self.clip_model.token_embedding(sot_token).float()
+		sot_emb = sot_emb.unsqueeze(0).expand(batch_size, -1, -1) # (B, 1, D)
+
 		eot_token = torch.tensor([Cfg.eos_token_id], device=soft_embeds.device)
 		eot_emb = self.clip_model.token_embedding(eot_token).float()
 		eot_emb = eot_emb.unsqueeze(0).expand(batch_size, -1, -1) # (B, 1, D)
 		
-		# 2. 拼接: [Soft_Tokens, EOT]
-		x = torch.cat([soft_embeds, eot_emb], dim=1)
+		# 2. 拼接: [SOT, Soft_Tokens, EOT]
+		x = torch.cat([sot_emb, soft_embeds, eot_emb], dim=1)
 		curr_len = x.shape[1]
-		eot_idx = seq_len
+		eot_idx = seq_len + 1
 		
 		# 3. 长度处理 (Padding 或 Truncate)
 		if curr_len < target_len:
