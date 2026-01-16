@@ -33,27 +33,20 @@ class YottaCap(nn.Module):
 		self.clip_model.visual.transformer.register_forward_hook(image_hook)
 		self.clip_model.transformer.register_forward_hook(text_hook)
 	
+	@torch.no_grad()
 	def extract_clip_features(self, image = None, text = None) -> dict:
 		result = {}
 		self.feature_hook_data.clear()
 		
 		if image is not None:
-			with torch.no_grad():
-				image_feat = self.clip_model.encode_image(image)
-				result['T_image'] = image_feat / image_feat.norm(dim=-1, keepdim=True)
-				result['vit_tokens'] = self.feature_hook_data['vit_tokens'].float()
+			image_feat = self.clip_model.encode_image(image)
+			result['T_image'] = image_feat / image_feat.norm(dim=-1, keepdim=True)
+			result['vit_tokens'] = self.feature_hook_data['vit_tokens'].float()
 		if text is not None:
-			with torch.no_grad():
-				text_feat = self.clip_model.encode_text(text)
-				result['T_text'] = text_feat / text_feat.norm(dim=-1, keepdim=True)
-				result['text_tokens'] = self.feature_hook_data['text_tokens'].float()
+			text_feat = self.clip_model.encode_text(text)
+			result['T_text'] = text_feat / text_feat.norm(dim=-1, keepdim=True)
+			result['text_tokens'] = self.feature_hook_data['text_tokens'].float()
 		return result
-	
-	def get_image_latent(self, vit_tokens: Tensor) -> Tensor:
-		return self.image_adapter(vit_tokens)
-
-	def get_text_latent(self, text_tokens: Tensor) -> Tensor:
-		return self.text_adapter(text_tokens)
 
 	def forward(self, latents: Tensor, token_ids: Tensor) -> Tensor:
 		text_emb = self.gpt2.embed(token_ids)

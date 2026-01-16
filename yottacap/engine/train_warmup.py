@@ -40,17 +40,14 @@ def train_warmup_step(
 		with autocast('cuda'):
 			features = model.extract_clip_features(text=text_emb)
 			
-			S_text: Tensor = model.get_text_latent(features['text_tokens'])
+			S_text: Tensor = model.text_adapter(features['text_tokens'])
 			
 			# CE Loss
 			logits = model.forward(S_text, text_emb[:, :-1])
 			logits = logits[:, S_text.shape[1]:]
 			loss_ce: Tensor = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
 			
-			# KL Loss
-			loss_kl_text = (S_text.norm(dim=-1) - 1).pow(2).mean()
-			
-			loss_text = loss_ce + Cfg.kl_weight * loss_kl_text
+			loss_text = loss_ce
 		
 		text_optimizer.zero_grad()
 		scaler.scale(loss_text).backward()
@@ -61,7 +58,6 @@ def train_warmup_step(
 			tqdmloader.set_postfix({
 				'Loss': loss_text.item(),
 				'LossCE': loss_ce.item(),
-				'LossKL': loss_kl_text.item(),
 			})
 
 	set_freeze([model.text_adapter, model.gpt2, model.discriminator], True)
@@ -74,7 +70,7 @@ def train_warmup_step(
 		image_emb = image_emb.to(Cfg.device, non_blocking=True).float()
 		
 		with autocast('cuda'):
-			S_img: Tensor = model.get_image_latent(image_emb).to(Cfg.device, non_blocking=True)
+			S_img: Tensor = model.image_adapter(image_emb).to(Cfg.device, non_blocking=True)
 
 			# SIM Loss
 			logits_img = model.gpt2.forward_logits(S_img)
@@ -88,10 +84,7 @@ def train_warmup_step(
 			
 			loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
 			
-			# KL Loss
-			loss_kl_img = (S_img.norm(dim=-1) - 1).pow(2).mean()
-			
-			loss_img = loss_sim + Cfg.kl_weight * loss_kl_img
+			loss_img = loss_sim
 		
 		image_optimizer.zero_grad()
 		scaler.scale(loss_img).backward()
@@ -102,7 +95,6 @@ def train_warmup_step(
 			tqdmloader.set_postfix({
 				'Loss': loss_img.item(),
 				'LossSim': loss_sim.item(),
-				'LossKL': loss_kl_img.item(),
 			})
 	
 	set_freeze([model.text_adapter, model.gpt2, model.image_adapter], True)
@@ -142,7 +134,7 @@ def train_warmup_step(
 	
 	if Cfg.is_master:
 		with open(log_file, 'a+') as f:
-			f.writelines(f'\n\tLossText: {loss_text:.3f}, CE: {loss_ce:.3f}, TextKL: {loss_kl_text:.3f}')
-			f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_sim:.3f}, ImageKL: {loss_kl_img:.3f}')
+			f.writelines(f'\n\tLossText: {loss_text:.3f}, CE: {loss_ce:.3f}')
+			f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_sim:.3f}')
 			f.writelines(f'\n\tLossDisc: {loss_disc:.3f}')
 			f.writelines('\n')

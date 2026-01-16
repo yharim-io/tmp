@@ -20,8 +20,7 @@ def image_to_text_batch(
 	image_tensor = torch.stack(images).to(Cfg.device)
 	
 	feats = model.extract_clip_features(image=image_tensor)
-	S_img = model.get_image_latent(feats['vit_tokens'])
-	prefix = model.latent_to_gpt(S_img)
+	S_img = model.image_adapter(feats['vit_tokens'])
 	
 	B = len(image_paths)
 	generated = torch.zeros((B, 0), dtype=torch.long, device=Cfg.device)
@@ -36,7 +35,7 @@ def image_to_text_batch(
 			full_seq = torch.cat([sot, generated], dim=1)
 			emb_text = model.gpt2.embed(full_seq)
 			
-		inputs = torch.cat([prefix, emb_text], dim=1)
+		inputs = torch.cat([S_img, emb_text], dim=1)
 		logits = model.gpt2.forward_logits(inputs)
 		next_tokens = logits[:, -1, :].argmax(dim=-1, keepdim=True)
 		

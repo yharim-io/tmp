@@ -49,21 +49,18 @@ def train_adversarial_step(
 		
 			with autocast('cuda'):
 		
-				S_text = model.get_text_latent(features['text_tokens']).to(Cfg.device, non_blocking=True)
+				S_text = model.text_adapter(features['text_tokens']).to(Cfg.device, non_blocking=True)
 				
 				# 1. CE Loss
 				logits = model.forward(S_text, text_emb[:, :-1])
 				logits = logits[:, S_text.shape[1]:]
 				loss_ce: Tensor = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
 				
-				# 2. KL Loss
-				loss_kl_text = (S_text.norm(dim=-1) - 1).pow(2).mean()
-				
-				# 3. Adversarial Loss (Fool D to think it's image)
+				# 2. Adversarial Loss (Fool D to think it's image)
 				pred_fake_logits = model.discriminator(S_text)
 				loss_adv = F.binary_cross_entropy_with_logits(pred_fake_logits, torch.ones_like(pred_fake_logits))
 				
-				loss_text = loss_ce + Cfg.kl_weight * loss_kl_text + Cfg.adv_weight * loss_adv
+				loss_text = loss_ce + Cfg.adv_weight * loss_adv
 				
 			text_optimizer.zero_grad()
 			scaler.scale(loss_text).backward()
@@ -79,7 +76,7 @@ def train_adversarial_step(
 
 			with autocast('cuda'):
 
-				S_img = model.get_image_latent(image_emb).to(Cfg.device, non_blocking=True)
+				S_img = model.image_adapter(image_emb).to(Cfg.device, non_blocking=True)
 			
 				# SIM Loss
 				logits_img = model.gpt2.forward_logits(S_img)
@@ -93,10 +90,7 @@ def train_adversarial_step(
 
 				loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
 				
-				# KL Loss
-				loss_kl_img = (S_img.norm(dim=-1) - 1).pow(2).mean()
-				
-				loss_img = loss_sim + Cfg.kl_weight * loss_kl_img
+				loss_img = loss_sim
 
 			image_optimizer.zero_grad()
 			scaler.scale(loss_img).backward()
@@ -136,7 +130,7 @@ def train_adversarial_step(
 	
 	if Cfg.is_master:
 		with open(log_file, 'a+') as f:
-			f.writelines(f'\n\tLossText: {loss_text:.3f}, CE: {loss_ce:.3f}, TextKL: {loss_kl_text:.3f}, ADV: {loss_adv:.3f}')
-			f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_sim:.3f}, ImageKL: {loss_kl_img:.3f}')
+			f.writelines(f'\n\tLossText: {loss_text:.3f}, CE: {loss_ce:.3f}, ADV: {loss_adv:.3f}')
+			f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_sim:.3f}')
 			f.writelines(f'\n\tLossDisc: {loss_disc:.3f}')
 			f.writelines('\n')

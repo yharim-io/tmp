@@ -2,25 +2,23 @@ from utils.config import Config as ConfigBase
 
 class _Model:
 	latent_dim: int = 768
-	latent_seq_len: int = 10
-	adapter_depth: int = 4
+	latent_seq_len: int = 4
+	adapter_depth: int = 3
 	adapter_heads: int = 8
-	text_mask_ratio: float = 0.3
+	text_mask_ratio: float = 0.1
 	
-	kl_weight: float = 0
 	adv_weight: float = 0.1
 	
 	max_seq_length: int = 30
 
 class _Schedule:
 	discriminator_learning_rate: float = 1e-4
-	warmup_epochs: int = 1
+	warmup_epochs: int = 5
 	factor: int = 12
 	batch_size: int = 32 * factor
 	learning_rate: float = 1e-5 * factor
-	warmup_steps: int = 1000 // factor
 
-	micro_steps_iter: list[int] = [1, 2, 8]
+	micro_steps_iter: list[int] = [1, 4, 8]
 
 class Config(ConfigBase, _Model, _Schedule):
 	pass
