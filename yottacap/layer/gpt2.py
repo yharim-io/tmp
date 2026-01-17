@@ -14,7 +14,7 @@ class GPT2(nn.Module):
 			gpt2config: GPT2Config = pickle.load(f)
 		self.core = GPT2LMHeadModel(gpt2config)
 		self.emb_size = gpt2config.n_embd
-		self.ember = self.core.get_input_embeddings()
+		self.ember: nn.Embedding = self.core.get_input_embeddings()
 	
 	def forward_logits(self, inputs_embeds: Tensor) -> Tensor:
 		return self.core(inputs_embeds=inputs_embeds).logits

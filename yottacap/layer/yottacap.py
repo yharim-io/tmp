@@ -78,19 +78,34 @@ class YottaCap(nn.Module):
 		return soft_clip_embeds
 
 	def gumbel_decode(self, latents: Tensor, temperature: float = 1.0) -> Tensor:
-		
 		batch_size = latents.shape[0]
 		sot_token = torch.tensor([Cfg.sot_token_id], device=Cfg.device).unsqueeze(0).expand(batch_size, -1)
-		gpt_seq_embeds = self.gpt2.embed(sot_token)
+		gpt_curr_input = self.gpt2.embed(sot_token)
+		clip_output_seq = self.clip_model.token_embedding(sot_token).float()
+		
+		clip_vocab_size = self.clip_model.token_embedding.weight.shape[0]
+		gpt_emb_weights_sliced = self.gpt2.ember.weight[:clip_vocab_size, :]
 		
 		for _ in range(Cfg.max_seq_length):
-			inputs = torch.cat([latents, gpt_seq_embeds], dim=1)
+			inputs = torch.cat([latents, gpt_curr_input], dim=1)
 			logits = self.gpt2.forward_logits(inputs)
 			next_token_logits = logits[:, -1, :]
-			next_token_emb = self.gumbel_softmax(next_token_logits, temperature)
-			gpt_seq_embeds = torch.cat([gpt_seq_embeds, next_token_emb])
 			
-		return gpt_seq_embeds
+			gumbel_noise = -torch.log(-torch.log(torch.rand_like(next_token_logits) + 1e-10) + 1e-10)
+			y = next_token_logits + gumbel_noise
+			soft_one_hot = F.softmax(y / temperature, dim=-1)
+			
+			vocab_size = self.clip_model.token_embedding.weight.shape[0]
+			if soft_one_hot.shape[-1] > vocab_size:
+				soft_one_hot = soft_one_hot[..., :vocab_size]
+			
+			next_clip_emb = soft_one_hot @ self.clip_model.token_embedding.weight.float()
+			clip_output_seq = torch.cat([clip_output_seq, next_clip_emb.unsqueeze(1)], dim=1)
+			
+			next_gpt_emb = soft_one_hot @ gpt_emb_weights_sliced
+			gpt_curr_input = torch.cat([gpt_curr_input, next_gpt_emb.unsqueeze(1)], dim=1)
+			
+		return clip_output_seq
 	
 	def softemb_to_clip(self, soft_embeds: Tensor) -> Tensor:
 		# soft_embeds: (Batch, Seq, 512)

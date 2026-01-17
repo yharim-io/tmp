@@ -46,9 +46,9 @@ def train_warmup_step(
 			# CE Loss
 			logits = model.forward(S_text, text_emb[:, :-1])
 			logits = logits[:, S_text.shape[1]:]
-			loss_ce: Tensor = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
+			loss_ce_text: Tensor = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
 			
-			loss_text = loss_ce
+			loss_text = loss_ce_text
 		
 		text_optimizer.zero_grad()
 		scaler.scale(loss_text).backward()
@@ -58,7 +58,7 @@ def train_warmup_step(
 		if Cfg.is_master:
 			tqdmloader.set_postfix({
 				'Loss': loss_text.item(),
-				'LossCE': loss_ce.item(),
+				'LossCE': loss_ce_text.item(),
 			})
 
 	set_freeze([model.text_adapter, model.gpt2, model.discriminator], True)
@@ -74,18 +74,24 @@ def train_warmup_step(
 			S_img: Tensor = model.image_adapter(image_emb).to(Cfg.device, non_blocking=True)
 
 			# SIM Loss
-			logits_img = model.gpt2.forward_logits(S_img)
-			soft_embeds = model.gumbel_softmax(logits_img)
+			# soft_embeds = model.gumbel_decode(S_img)
 			
-			T_text_recon: Tensor = model.softemb_to_clip(soft_embeds).to(Cfg.device, non_blocking=True)
-			T_text_recon = F.normalize(T_text_recon, dim=-1)
+			# T_text_recon: Tensor = model.softemb_to_clip(soft_embeds).to(Cfg.device, non_blocking=True)
+			# T_text_recon = F.normalize(T_text_recon, dim=-1)
 
-			T_image: Tensor = batch['image_feat'].to(Cfg.device, non_blocking=True)
-			T_image = F.normalize(T_image, dim=-1)
+			# T_image: Tensor = batch['image_feat'].to(Cfg.device, non_blocking=True)
+			# T_image = F.normalize(T_image, dim=-1)
 			
-			loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
+			# loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
 			
-			loss_img = loss_sim
+			# loss_img = loss_sim
+			
+			# CE Loss
+			logits = model.forward(S_img, text_emb[:, :-1])
+			logits = logits[:, S_img.shape[1]:]
+			loss_ce_img: Tensor = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
+			
+			loss_img = loss_ce_img
 		
 		image_optimizer.zero_grad()
 		scaler.scale(loss_img).backward()
@@ -95,7 +101,8 @@ def train_warmup_step(
 		if Cfg.is_master:
 			tqdmloader.set_postfix({
 				'Loss': loss_img.item(),
-				'LossSim': loss_sim.item(),
+				# 'LossSim': loss_sim.item(),
+				'LossCE': loss_ce_img.item(),
 			})
 	
 	set_freeze([model.text_adapter, model.gpt2, model.image_adapter], True)
@@ -135,7 +142,8 @@ def train_warmup_step(
 	
 	if Cfg.is_master:
 		with open(log_file, 'a+') as f:
-			f.writelines(f'\n\tLossText: {loss_text:.3f}, CE: {loss_ce:.3f}')
-			f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_sim:.3f}')
+			f.writelines(f'\n\tLossText: {loss_text:.3f}, CE: {loss_ce_text:.3f}')
+			# f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_sim:.3f}')
+			f.writelines(f'\n\tLossImage: {loss_img:.3f}, CE: {loss_ce_img:.3f}')
 			f.writelines(f'\n\tLossDisc: {loss_disc:.3f}')
 			f.writelines('\n')

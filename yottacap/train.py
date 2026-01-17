@@ -16,6 +16,6 @@ train(
 	dataset,
 	output_dir = Cfg.root/'data/yottacap/coco/',
 	epochs = 100,
-    # start_epoch = 6,
-    # init_weights = Cfg.root/'data/yottacap/coco/epoch_5.pt',
+    # start_epoch = 5,
+    # init_weights = Cfg.root/'data/yottacap/coco/epoch_4.pt',
 )

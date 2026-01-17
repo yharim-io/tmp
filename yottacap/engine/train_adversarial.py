@@ -55,13 +55,13 @@ def train_adversarial_step(
 				# 1. CE Loss
 				logits = model.forward(S_text, text_emb[:, :-1])
 				logits = logits[:, S_text.shape[1]:]
-				loss_ce: Tensor = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
+				loss_ce_text: Tensor = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
 				
 				# 2. Adversarial Loss (Fool D to think it's image)
 				pred_fake_logits = model.discriminator(S_text)
 				loss_adv = F.binary_cross_entropy_with_logits(pred_fake_logits, torch.ones_like(pred_fake_logits))
 				
-				loss_text = loss_ce + Cfg.adv_weight * loss_adv
+				loss_text = loss_ce_text + Cfg.adv_weight * loss_adv
 				
 			text_optimizer.zero_grad()
 			scaler.scale(loss_text).backward()
@@ -80,18 +80,24 @@ def train_adversarial_step(
 				S_img: Tensor = model.image_adapter(image_emb).to(Cfg.device, non_blocking=True)
 			
 				# SIM Loss
-				logits_img = model.gpt2.forward_logits(S_img)
-				soft_embeds = model.gumbel_softmax(logits_img)
+				# soft_embeds = model.gumbel_decode(S_img)
 				
-				T_text_recon = model.softemb_to_clip(soft_embeds).to(Cfg.device, non_blocking=True)
-				T_text_recon = F.normalize(T_text_recon, dim=-1)
+				# T_text_recon = model.softemb_to_clip(soft_embeds).to(Cfg.device, non_blocking=True)
+				# T_text_recon = F.normalize(T_text_recon, dim=-1)
 				
-				T_image: Tensor = batch['image_feat'].to(Cfg.device, non_blocking=True).float()
-				T_image = F.normalize(T_image, dim=-1)
+				# T_image: Tensor = batch['image_feat'].to(Cfg.device, non_blocking=True).float()
+				# T_image = F.normalize(T_image, dim=-1)
 
-				loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
+				# loss_sim = 1.0 - (T_text_recon * T_image).sum(dim=-1).mean()
 				
-				loss_img = loss_sim
+				# loss_img = loss_sim
+				
+				# CE Loss
+				logits = model.forward(S_img, text_emb[:, :-1])
+				logits = logits[:, S_img.shape[1]:]
+				loss_ce_img: Tensor = ce_loss_fn(logits.reshape(-1, logits.shape[-1]), text_emb[:, 1:].flatten())
+				
+				loss_img = loss_ce_img
 
 			image_optimizer.zero_grad()
 			scaler.scale(loss_img).backward()
@@ -131,7 +137,8 @@ def train_adversarial_step(
 	
 	if Cfg.is_master:
 		with open(log_file, 'a+') as f:
-			f.writelines(f'\n\tLossText: {loss_text:.3f}, CE: {loss_ce:.3f}, ADV: {loss_adv:.3f}')
-			f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_sim:.3f}')
+			f.writelines(f'\n\tLossText: {loss_text:.3f}, CE: {loss_ce_text:.3f}, ADV: {loss_adv:.3f}')
+			# f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_sim:.3f}')
+			f.writelines(f'\n\tLossImage: {loss_img:.3f}, Sim: {loss_ce_img:.3f}')
 			f.writelines(f'\n\tLossDisc: {loss_disc:.3f}')
 			f.writelines('\n')
