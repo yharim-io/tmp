@@ -15,7 +15,7 @@ dataset.subset(len(dataset) // 4)
 train(
 	dataset,
 	output_dir = Cfg.root/'data/yottacap/coco/',
-	epochs = 50,
-    start_epoch = 0,
-    # init_weights = Cfg.root/'data/yottacap/coco/epoch_49.pt',
+	epochs = 100,
+    # start_epoch = 6,
+    # init_weights = Cfg.root/'data/yottacap/coco/epoch_5.pt',
 )

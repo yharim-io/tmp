@@ -69,6 +69,14 @@ class YottaCap(nn.Module):
 		soft_clip_embeds = soft_one_hot @ self.clip_model.token_embedding.weight.float()
 		return soft_clip_embeds
 	
+	def gumbel_softmax_st(self, logits: Tensor, temperature: float = 1.0) -> Tensor:
+		y_hard = F.gumbel_softmax(logits, tau=temperature, hard=True, dim=-1)
+		vocab_size = self.clip_model.token_embedding.weight.shape[0]
+		if y_hard.shape[-1] > vocab_size:
+			y_hard = y_hard[..., :vocab_size]
+		soft_clip_embeds = y_hard @ self.clip_model.token_embedding.weight.float()
+		return soft_clip_embeds
+
 	def softemb_to_clip(self, soft_embeds: Tensor) -> Tensor:
 		# soft_embeds: (Batch, Seq, 512)
 		batch_size, seq_len, dim = soft_embeds.shape

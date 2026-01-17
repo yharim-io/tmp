@@ -10,9 +10,10 @@ from yottacap.layer.yottacap import YottaCap
 from yottacap.config import Cfg
 
 def set_freeze(modules: list[nn.Module], freeze: bool):
+	req_grad = not freeze
 	for mod in modules:
 		for p in mod.parameters():
-			p.requires_grad = not freeze
+			p.requires_grad_(req_grad)
 
 def train_adversarial_step(
 	dataloader,
@@ -49,7 +50,7 @@ def train_adversarial_step(
 		
 			with autocast('cuda'):
 		
-				S_text = model.text_adapter(features['text_tokens']).to(Cfg.device, non_blocking=True)
+				S_text: Tensor = model.text_adapter(features['text_tokens']).to(Cfg.device, non_blocking=True)
 				
 				# 1. CE Loss
 				logits = model.forward(S_text, text_emb[:, :-1])
@@ -76,7 +77,7 @@ def train_adversarial_step(
 
 			with autocast('cuda'):
 
-				S_img = model.image_adapter(image_emb).to(Cfg.device, non_blocking=True)
+				S_img: Tensor = model.image_adapter(image_emb).to(Cfg.device, non_blocking=True)
 			
 				# SIM Loss
 				logits_img = model.gpt2.forward_logits(S_img)

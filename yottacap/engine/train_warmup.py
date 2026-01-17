@@ -10,9 +10,10 @@ from yottacap.layer.yottacap import YottaCap
 from yottacap.config import Cfg
 
 def set_freeze(modules: list[nn.Module], freeze: bool):
+	req_grad = not freeze
 	for mod in modules:
 		for p in mod.parameters():
-			p.requires_grad = not freeze
+			p.requires_grad_(req_grad)
 
 def train_warmup_step(
 	dataloader,
@@ -109,8 +110,8 @@ def train_warmup_step(
 		with autocast('cuda'):
 			with torch.no_grad():
 				features = model.extract_clip_features(text=text_emb)
-				S_text = model.get_text_latent(features['text_tokens'])
-				S_img = model.get_image_latent(image_emb)
+				S_text = model.text_adapter(features['text_tokens'])
+				S_img = model.image_adapter(image_emb)
 			
 			S_text = S_text.detach()
 			S_img = S_img.detach()
