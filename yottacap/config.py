@@ -8,8 +8,6 @@ class _Model:
 	text_mask_ratio: float = 0.2
 	
 	adv_weight: float = 0.1
-	
-	max_seq_length: int = 30
 
 class _Schedule:
 	discriminator_learning_rate: float = 1e-4

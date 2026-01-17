@@ -77,6 +77,21 @@ class YottaCap(nn.Module):
 		soft_clip_embeds = y_hard @ self.clip_model.token_embedding.weight.float()
 		return soft_clip_embeds
 
+	def gumbel_decode(self, latents: Tensor, temperature: float = 1.0) -> Tensor:
+		
+		batch_size = latents.shape[0]
+		sot_token = torch.tensor([Cfg.sot_token_id], device=Cfg.device).unsqueeze(0).expand(batch_size, -1)
+		gpt_seq_embeds = self.gpt2.embed(sot_token)
+		
+		for _ in range(Cfg.max_seq_length):
+			inputs = torch.cat([latents, gpt_seq_embeds], dim=1)
+			logits = self.gpt2.forward_logits(inputs)
+			next_token_logits = logits[:, -1, :]
+			next_token_emb = self.gumbel_softmax(next_token_logits, temperature)
+			gpt_seq_embeds = torch.cat([gpt_seq_embeds, next_token_emb])
+			
+		return gpt_seq_embeds
+	
 	def softemb_to_clip(self, soft_embeds: Tensor) -> Tensor:
 		# soft_embeds: (Batch, Seq, 512)
 		batch_size, seq_len, dim = soft_embeds.shape
