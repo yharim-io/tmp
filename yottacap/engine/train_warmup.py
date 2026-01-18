@@ -35,8 +35,7 @@ def train_warmup_step(
 	tqdmloader = tqdm(dataloader, desc='Text Priming') if Cfg.is_master else dataloader
 	
 	for batch in tqdmloader:
-		text_emb: Tensor = batch['text_emb']
-		text_emb = text_emb.to(Cfg.device, non_blocking=True)
+		text_emb: Tensor = batch['text_emb'].to(Cfg.device, non_blocking=True)
 		
 		with autocast('cuda'):
 			features = model.extract_clip_features(text=text_emb)
@@ -67,8 +66,8 @@ def train_warmup_step(
 	tqdmloader = tqdm(dataloader, desc='Image Alignment') if Cfg.is_master else dataloader
 
 	for batch in tqdmloader:
-		image_emb = batch['image_emb']
-		image_emb = image_emb.to(Cfg.device, non_blocking=True).float()
+		text_emb: Tensor = batch['text_emb'].to(Cfg.device, non_blocking=True)
+		image_emb: Tensor = batch['image_emb'].to(Cfg.device, non_blocking=True).float()
 		
 		with autocast('cuda'):
 			S_img: Tensor = model.image_adapter(image_emb).to(Cfg.device, non_blocking=True)
@@ -111,8 +110,8 @@ def train_warmup_step(
 	tqdmloader = tqdm(dataloader, desc='Discriminator Warmup') if Cfg.is_master else dataloader
 
 	for batch in tqdmloader:
-		text_emb = batch['text_emb'].to(Cfg.device, non_blocking=True)
-		image_emb = batch['image_emb'].to(Cfg.device, non_blocking=True).float()
+		text_emb: Tensor = batch['text_emb'].to(Cfg.device, non_blocking=True)
+		image_emb: Tensor = batch['image_emb'].to(Cfg.device, non_blocking=True).float()
 		
 		with autocast('cuda'):
 			with torch.no_grad():

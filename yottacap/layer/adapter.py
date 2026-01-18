@@ -7,7 +7,6 @@ from .transformer_stack import TransformerStack
 class AdapterBase(nn.Module):
 	def __init__(self):
 		super().__init__()
-		self.target_len = Cfg.latent_seq_len
 		
 		self.transformer = TransformerStack(
 			dim=Cfg.latent_dim,
@@ -15,7 +14,7 @@ class AdapterBase(nn.Module):
 			num_layers=Cfg.adapter_depth,
 		)
 		
-		self.latent_queries = nn.Parameter(torch.randn(1, self.target_len, Cfg.latent_dim))
+		self.latent_queries = nn.Parameter(torch.randn(1, Cfg.latent_seq_len, Cfg.latent_dim))
 		nn.init.normal_(self.latent_queries, std=0.02)
 
 	def forward_reduce(self, x: Tensor) -> Tensor:
@@ -23,7 +22,7 @@ class AdapterBase(nn.Module):
 		queries = self.latent_queries.expand(B, -1, -1)
 		combined_seq = torch.cat([x, queries], dim=1)
 		out = self.transformer(combined_seq)
-		return out[:, -self.target_len:, :]
+		return out[:, -Cfg.latent_seq_len:, :]
 
 class ImageAdapter(AdapterBase):
 	def forward(self, features: Tensor) -> Tensor:

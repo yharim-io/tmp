@@ -18,6 +18,8 @@ class _Path:
 	
 	clip_pretrained_path: Path = root/'data/clip/ViT-B-32.pt'
 
+	lama_pretrained_path: Path = root/'data/lama/big-lama.pt'
+
 class _Dist:
 	rank: int = int(os.environ.get('LOCAL_RANK', 0))
 	is_master: bool = rank == 0

@@ -2,16 +2,18 @@
 
 !.gitignore
 
-!zerocap/
-!zerocap/**
-!clipcap/
-!clipcap/**
-!clipvl/
-!clipvl/**
-!decap/
-!decap/**
-!yottacap/
-!yottacap/**
+# !zerocap/
+# !zerocap/**
+# !clipcap/
+# !clipcap/**
+# !clipvl/
+# !clipvl/**
+# !decap/
+# !decap/**
+# !yottacap/
+# !yottacap/**
+!upcap/
+!upcap/**
 !utils/
 !utils/**
 
