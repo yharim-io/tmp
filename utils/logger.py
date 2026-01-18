@@ -1,16 +1,16 @@
 from contextlib import contextmanager
 
 @contextmanager
-def logger(module: str, log: str):
-	print(f'[{module}] {log}...')
+def logger(module: str, log: str, cond: bool = True):
+	if cond: print(f'[{module}] {log}...')
 	try:
 		yield
 	except:
-		print(f'[{module}] {log} failed.')
+		if cond: print(f'[{module}] {log} failed.')
 		raise
 	finally:
-		print(f'[{module}] {log} done.')
-	print()
+		if cond: print(f'[{module}] {log} done.')
+	if cond: print()
 
 @contextmanager
 def timer(module: str, task: str):
