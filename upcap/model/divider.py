@@ -16,9 +16,7 @@ class Divider:
 	def __init__(self):
 		self.model = YOLO('yolo11n-seg.pt')
 		self.inpainter = Inpainter()
-		
-		with timer('Divider', 'warmup', Cfg.is_master):
-			self.warmup()
+		self.warmup()
 
 	def warmup(self):
 		tmp = Cfg.root / 'data/example/warmup_pixel.jpg'
@@ -30,8 +28,8 @@ class Divider:
 			if tmp.exists():
 				os.remove(tmp)
 
-	def process(self, image_path: os.PathLike, hidden_size: int = 320) -> Tensor:
-		return self.process_batch([image_path], hidden_size)
+	def process(self, image_path: os.PathLike, bg: bool = True, hidden_size: int = 320) -> Tensor:
+		return self.process_batch([image_path], bg, hidden_size)
 
 	def dilate_mask(self, mask: Tensor, kernel_size: int = 15) -> Tensor:
 		mask_float = mask.float().unsqueeze(0).unsqueeze(0)
@@ -39,7 +37,7 @@ class Divider:
 		dilated = F.max_pool2d(mask_float, kernel_size, stride=1, padding=padding)
 		return dilated.squeeze(0).squeeze(0) > 0.5
 
-	def process_batch(self, image_paths: list[os.PathLike], hidden_size: int = 320) -> Tensor:
+	def process_batch(self, image_paths: list[os.PathLike], bg: bool = True, hidden_size: int = 320) -> Tensor:
 		batch_tensors = []
 		
 		for p in image_paths:
@@ -76,7 +74,7 @@ class Divider:
 		proc_batch = tensor_batch * 255.0
 
 		for i, res in enumerate(results):
-			out = self._process_single_result(proc_batch[i], res)
+			out = self._process_single_result(proc_batch[i], res, bg)
 			if out is not None:
 				output_tensors.append(out)
 
@@ -85,7 +83,7 @@ class Divider:
 		
 		return torch.cat(output_tensors, dim=0)
 
-	def _process_single_result(self, image: Tensor, result: Results) -> Tensor | None:
+	def _process_single_result(self, image: Tensor, result: Results, bg: bool) -> Tensor | None:
 		if result.masks is None:
 			return None
 
@@ -134,18 +132,18 @@ class Divider:
 		
 		masked_imgs = image_hwc.unsqueeze(0) * final_masks
 		
-		fill_mask = self.dilate_mask(occupied)
-		filled_bg = self.inpainter(image_hwc, fill_mask)
+		if bg:
+			fill_bg_mask = self.dilate_mask(occupied)
+			filled_bg = self.inpainter(image_hwc, fill_bg_mask)
+			masked_imgs = torch.cat([masked_imgs, filled_bg.unsqueeze(0)], dim=0)
 		
-		combined = torch.cat([masked_imgs, filled_bg.unsqueeze(0)], dim=0)
+		# Resize to 640x640
+		masked_imgs = masked_imgs.permute(0, 3, 1, 2)
+		masked_imgs = F.interpolate(masked_imgs, size=(640, 640), mode='bilinear', align_corners=False)
+		masked_imgs = masked_imgs.permute(0, 2, 3, 1)
 		
-		# Resize 回 640x640
-		combined = combined.permute(0, 3, 1, 2)
-		combined = F.interpolate(combined, size=(640, 640), mode='bilinear', align_corners=False)
-		combined = combined.permute(0, 2, 3, 1)
-		
-		return combined
-
+		return masked_imgs
+	
 if __name__ == "__main__":
 
 	divider = Divider()

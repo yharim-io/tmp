@@ -104,6 +104,12 @@ def train(
 				flat_feats = clip_model.encode_text(flat_tokens)
 				flat_feats = flat_feats / flat_feats.norm(dim=-1, keepdim=True)
 				text_concepts = flat_feats.view(B, M, -1).float()
+			
+			# shuffle local concepts
+			text_concepts = torch.cat([
+				text_concepts[:, :1],
+				text_concepts[:, 1:][:, torch.randperm(text_concepts.shape[1] - 1, device=text_concepts.device)]
+			], dim=1)
 
 			M = text_concepts.shape[1]
 			
