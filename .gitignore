@@ -8,8 +8,8 @@
 # !clipcap/**
 # !clipvl/
 # !clipvl/**
-# !decap/
-# !decap/**
+!decap/
+!decap/**
 # !yottacap/
 # !yottacap/**
 !upcap/
