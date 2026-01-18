@@ -1,17 +1,21 @@
 import torch
 import torch.distributed as dist
 import os
+import gc
 
 from upcap.config import Cfg
-from upcap.engine.compute_concepts import compute_concepts
+from upcap.engine.compute_concepts import compute_concepts_image
 from upcap.model.divider import Divider
 from utils.dataset import CocoDataset, DType
 from utils.logger import logger
-
-if __name__ == '__main__':
+	
+def store_concepts_image():
 	
 	torch.cuda.set_device(Cfg.device)
 	dist.init_process_group(backend='nccl', init_method='env://')
+	
+	torch.backends.cudnn.benchmark = True
+	
 	torch.manual_seed(42)
 	torch.cuda.manual_seed_all(42)
 	
@@ -25,8 +29,9 @@ if __name__ == '__main__':
 			cache_path = Cfg.coco_train_cache,
 			dtype = DType.IMAGE
 		)
+		dataset.subset(16384)
 	
-	output_file = Cfg.root / 'data/upcap/concepts_image.pt'
+	output_file = Cfg.concepts_image_path
 	temp_dir = output_file.parent / 'temp_parts'
 	
 	if Cfg.is_master:
@@ -36,7 +41,7 @@ if __name__ == '__main__':
 	dist.barrier(device_ids=[torch.cuda.current_device()])
 	
 	with logger('upcap', 'extracting images', Cfg.is_master):
-		local_concepts = compute_concepts(
+		local_concepts = compute_concepts_image(
 			dataset,
 			divider,
 			batch_size=256
@@ -44,6 +49,11 @@ if __name__ == '__main__':
 	
 	part_path = temp_dir / f'part_{Cfg.rank}.pt'
 	torch.save(local_concepts, part_path)
+	
+	del local_concepts
+	del divider
+	gc.collect()
+	torch.cuda.empty_cache()
 	
 	dist.barrier(device_ids=[torch.cuda.current_device()])
 	
@@ -53,10 +63,14 @@ if __name__ == '__main__':
 			for rank in range(dist.get_world_size()):
 				part_file = temp_dir / f'part_{rank}.pt'
 				if part_file.exists():
-					part_tensor = torch.load(part_file, weights_only=True)
+					part_tensor = torch.load(
+						part_file,
+						map_location='cpu',
+						weights_only=True
+					)
 					if part_tensor.numel() > 0:
 						all_parts.append(part_tensor)
-					os.remove(part_file)
+					# os.remove(part_file)
 			
 			if all_parts:
 				final_tensor = torch.cat(all_parts, dim=0)
@@ -65,6 +79,10 @@ if __name__ == '__main__':
 			else:
 				print("No concepts extracted.")
 			
-			os.rmdir(temp_dir)
+			# os.rmdir(temp_dir)
 	
 	dist.destroy_process_group()
+
+if __name__ == '__main__':
+	
+	store_concepts_image()

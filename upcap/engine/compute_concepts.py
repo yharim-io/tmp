@@ -7,7 +7,7 @@ from upcap.config import Cfg
 from upcap.model.divider import Divider
 
 @torch.inference_mode()
-def compute_concepts(
+def compute_concepts_image(
     dataset: Dataset,
     divider: Divider,
     batch_size: int = 64
