@@ -27,12 +27,15 @@ if __name__ == '__main__':
 	with logger('divider', 'loading', Cfg.is_master):
 		divider = Divider()
 
-	dataset = CocoDataset(
-		annotations = Cfg.coco_train_ann,
-		images_path = Cfg.coco_train_image,
-		cache_path = Cfg.coco_train_cache,
-		dtype = DType.IMAGE
-	)
+	with logger('dataset', 'loading', Cfg.is_master):
+		dataset = CocoDataset(
+			annotations = Cfg.coco_train_ann,
+			images_path = Cfg.coco_train_image,
+			cache_path = Cfg.coco_train_cache,
+			dtype = DType.IMAGE
+		)
+	
+	# dataset.subset(256)
 	
 	output_file = Cfg.root / 'data/upcap/concepts.pt'
 	temp_dir = output_file.parent / 'temp_parts'
@@ -76,3 +79,5 @@ if __name__ == '__main__':
 				print("No concepts extracted.")
 			
 			os.rmdir(temp_dir)
+	
+		dist.destroy_process_group()

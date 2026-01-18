@@ -5,7 +5,6 @@ from torch import Tensor
 from torch.nn import functional as F
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
-from concurrent.futures import ThreadPoolExecutor
 import os
 
 from .inpainter import Inpainter
@@ -17,32 +16,22 @@ class Divider:
 	def __init__(self):
 		self.model = YOLO('yolo11n-seg.pt')
 		self.inpainter = Inpainter()
+		
+		with timer('Divider', 'warmup', Cfg.is_master):
+			self.warmup()
 
-	def process(self, image_path: os.PathLike) -> Tensor:
-		image = cv2.imread(str(image_path))
-		if image is None:
-			return torch.empty(0)
-		
-		if (image.shape[1], image.shape[0]) != (640, 640):
-			image = cv2.resize(image, (640, 640))
-		
-		results: Results = self.model(
-			image, 
-			device=Cfg.device,
-			retina_masks=True,
-			imgsz=640,
-			conf=0.2, 
-			iou=0.9,
-			half=True,
-			verbose=False
-		)
-		
-		tensor = self._process_single_result(image, results[0])
-		
-		if tensor is None:
-			return torch.empty(0)
-			
-		return tensor
+	def warmup(self):
+		tmp = Cfg.root / 'data/example/warmup_pixel.jpg'
+		os.makedirs(tmp.parent, exist_ok=True)
+		cv2.imwrite(str(tmp), np.zeros((640, 640, 3), dtype=np.uint8))
+		try:
+			self.process(tmp)
+		finally:
+			if tmp.exists():
+				os.remove(tmp)
+
+	def process(self, image_path: os.PathLike, hidden_size: int = 320) -> Tensor:
+		return self.process_batch([image_path], hidden_size)
 
 	def dilate_mask(self, mask: Tensor, kernel_size: int = 15) -> Tensor:
 		mask_float = mask.float().unsqueeze(0).unsqueeze(0)
@@ -50,121 +39,123 @@ class Divider:
 		dilated = F.max_pool2d(mask_float, kernel_size, stride=1, padding=padding)
 		return dilated.squeeze(0).squeeze(0) > 0.5
 
-	def process_batch(self, image_paths: list[os.PathLike]) -> Tensor:
-		raw_images = []
+	def process_batch(self, image_paths: list[os.PathLike], hidden_size: int = 320) -> Tensor:
+		batch_tensors = []
+		
 		for p in image_paths:
 			img = cv2.imread(str(p))
-			if img is not None:
-				if (img.shape[1], img.shape[0]) != (640, 640):
-					img = cv2.resize(img, (640, 640))
-				raw_images.append(img)
+			if img is None:
+				continue
+				
+			img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+			
+			t = torch.from_numpy(img).to(Cfg.device)
+			t = t.permute(2, 0, 1).float().unsqueeze(0) / 255.0
+			
+			t = F.interpolate(t, size=(hidden_size, hidden_size), mode='bilinear', align_corners=False)
+			batch_tensors.append(t)
 		
-		if not raw_images:
+		if not batch_tensors:
 			return torch.empty(0)
 
+		tensor_batch = torch.cat(batch_tensors, dim=0)
+
 		results: list[Results] = self.model(
-			raw_images, 
+			tensor_batch, 
 			device=Cfg.device,
-			retina_masks=True,
-			imgsz=640,
+			retina_masks=False,
+			imgsz=hidden_size,
 			conf=0.2, 
 			iou=0.9,
 			half=True,
 			verbose=False,
-			stream=False 
+			stream=False
 		)
 		
-		batch_tensors = [torch.empty((0, 640, 640, 3), device=Cfg.device) for _ in range(len(raw_images))]
-		
-		def run_single(idx, img, res):
-			out = self._process_single_result(img, res)
+		output_tensors = []
+		proc_batch = tensor_batch * 255.0
+
+		for i, res in enumerate(results):
+			out = self._process_single_result(proc_batch[i], res)
 			if out is not None:
-				batch_tensors[idx] = out
+				output_tensors.append(out)
 
-		with ThreadPoolExecutor(max_workers=8) as executor:
-			futures = [executor.submit(run_single, i, img, res) for i, (img, res) in enumerate(zip(raw_images, results))]
-			for f in futures:
-				f.result()
+		if not output_tensors:
+			return torch.empty(0)
 		
-		return torch.cat(batch_tensors, dim=0)
+		return torch.cat(output_tensors, dim=0)
 
-	def _process_single_result(self, image: np.ndarray, result: Results) -> Tensor | None:
+	def _process_single_result(self, image: Tensor, result: Results) -> Tensor | None:
 		if result.masks is None:
 			return None
 
-		masks = result.masks.data.cpu().numpy()
+		# result.masks.data 已经在 GPU 上
+		masks = result.masks.data
+		cls_ids = result.boxes.cls.int()
 
-		cls_ids = result.boxes.cls.cpu().numpy().astype(int)
-		merged_map = {}
-		for mask_data, c_id in zip(masks, cls_ids):
-			mask_bool = mask_data.astype(bool)
-			if c_id not in merged_map:
-				merged_map[c_id] = mask_bool
-			else:
-				merged_map[c_id] = np.logical_or(merged_map[c_id], mask_bool)
+		# GPU 上的掩码合并逻辑
+		unique_cls = torch.unique(cls_ids)
+		merged_list = []
+		for c in unique_cls:
+			merged_list.append(masks[cls_ids == c].amax(dim=0))
 		
-		if not merged_map:
+		if not merged_list:
 			return None
 			
-		masks = np.stack(list(merged_map.values()))
+		merged_masks = torch.stack(merged_list)
+		areas = merged_masks.sum(dim=(1, 2))
 		
-		areas = np.sum(masks, axis=(1, 2))
-		sorted_indices = np.argsort(areas)[::-1]
+		sorted_idx = torch.argsort(areas, descending=True)
+		keep_indices = []
+		occupied = torch.zeros_like(merged_masks[0], dtype=torch.bool)
 		
-		keep_masks = []
-		occupied_mask = np.zeros(masks.shape[1:], dtype=bool)
-
-		for idx in sorted_indices:
-			current_mask = masks[idx].astype(bool)
-			current_area = areas[idx]
-			
-			if current_area < 1000:
+		# NMS 逻辑
+		for idx in sorted_idx:
+			if areas[idx] < 1000:
 				continue
-
-			intersection = np.logical_and(current_mask, occupied_mask)
-			overlap_ratio = np.sum(intersection) / current_area
 			
-			if overlap_ratio > 0.1:
+			curr = merged_masks[idx].bool()
+			# 使用 Tensor 操作计算重叠率
+			overlap = (curr & occupied).sum() / areas[idx]
+			
+			if overlap > 0.1:
 				continue
-
-			keep_masks.append(current_mask)
-			occupied_mask = np.logical_or(occupied_mask, current_mask)
-
-		if not keep_masks:
+				
+			keep_indices.append(idx)
+			occupied = occupied | curr
+			
+		if not keep_indices:
 			return None
 
-		masks_stack = np.stack(keep_masks)
+		final_masks = merged_masks[torch.stack(keep_indices)].unsqueeze(-1) # (K, H, W, 1)
 		
-		image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
-
-		masks_tensor = torch.from_numpy(masks_stack).to(Cfg.device).unsqueeze(-1)
-		image_tensor = torch.from_numpy(image_rgb).to(Cfg.device).unsqueeze(0)
-
-		masked_images = image_tensor * masks_tensor
-
-		fill_bg_mask = self.dilate_mask(torch.from_numpy(occupied_mask).to(Cfg.device))
-		filled_bg = self.inpainter(image_tensor[0], fill_bg_mask)
-
-		masked_images = torch.cat([masked_images, filled_bg.unsqueeze(0)], dim=0)
-
-		masked_images = masked_images.permute(0, 3, 1, 2).float()
-		masked_images = F.interpolate(masked_images, size=(640, 640), mode='bilinear', align_corners=False)
-		masked_images = masked_images.permute(0, 2, 3, 1)
-
-		return masked_images
+		# 转换图像格式 (3, H, W) -> (H, W, 3) 以匹配后续操作
+		image_hwc = image.permute(1, 2, 0)
+		
+		masked_imgs = image_hwc.unsqueeze(0) * final_masks
+		
+		fill_mask = self.dilate_mask(occupied)
+		filled_bg = self.inpainter(image_hwc, fill_mask)
+		
+		combined = torch.cat([masked_imgs, filled_bg.unsqueeze(0)], dim=0)
+		
+		# Resize 回 640x640
+		combined = combined.permute(0, 3, 1, 2)
+		combined = F.interpolate(combined, size=(640, 640), mode='bilinear', align_corners=False)
+		combined = combined.permute(0, 2, 3, 1)
+		
+		return combined
 
 if __name__ == "__main__":
 
 	divider = Divider()
 	
-	with timer('divider', 'dummy'):
-		dummy = divider.process(Cfg.root/'data/example/1.jpg')
-	
-	results = divider.process_batch([
-		Cfg.root/'data/example/1.jpg',
-		Cfg.root/'data/example/2.jpg',
-		Cfg.root/'data/example/3.jpg'
-	])
+	with timer('Divider', 'process bacth'):
+		results = divider.process_batch([
+			Cfg.root/'data/example/1.jpg',
+			Cfg.root/'data/example/2.jpg',
+			Cfg.root/'data/example/3.jpg'
+		])
 
 	for i, img_tensor in enumerate(results):
 		img = img_tensor.cpu().numpy().astype(np.uint8)
