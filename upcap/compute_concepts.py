@@ -1,6 +1,5 @@
 import torch
 import torch.distributed as dist
-import clip
 import os
 
 from upcap.config import Cfg
@@ -16,14 +15,6 @@ if __name__ == '__main__':
 	torch.manual_seed(42)
 	torch.cuda.manual_seed_all(42)
 	
-	with logger('clip', 'loading', Cfg.is_master):
-		clip_model, preprocess = clip.load(
-			Cfg.clip_pretrained_path,
-			device=Cfg.device,
-			jit=False
-		)
-		clip_model.eval()
-
 	with logger('divider', 'loading', Cfg.is_master):
 		divider = Divider()
 
@@ -35,9 +26,7 @@ if __name__ == '__main__':
 			dtype = DType.IMAGE
 		)
 	
-	# dataset.subset(256)
-	
-	output_file = Cfg.root / 'data/upcap/concepts.pt'
+	output_file = Cfg.root / 'data/upcap/concepts_image.pt'
 	temp_dir = output_file.parent / 'temp_parts'
 	
 	if Cfg.is_master:
@@ -46,11 +35,9 @@ if __name__ == '__main__':
 	
 	dist.barrier(device_ids=[torch.cuda.current_device()])
 	
-	with logger('upcap', 'computing concepts', Cfg.is_master):
+	with logger('upcap', 'extracting images', Cfg.is_master):
 		local_concepts = compute_concepts(
 			dataset,
-			clip_model,
-			preprocess,
 			divider,
 			batch_size=256
 		)
@@ -61,7 +48,7 @@ if __name__ == '__main__':
 	dist.barrier(device_ids=[torch.cuda.current_device()])
 	
 	if Cfg.is_master:
-		with logger('upcap', 'merging concepts'):
+		with logger('upcap', 'merging images'):
 			all_parts = []
 			for rank in range(dist.get_world_size()):
 				part_file = temp_dir / f'part_{rank}.pt'
@@ -74,10 +61,10 @@ if __name__ == '__main__':
 			if all_parts:
 				final_tensor = torch.cat(all_parts, dim=0)
 				torch.save(final_tensor, output_file)
-				print(f"Total concepts saved: {final_tensor.shape[0]}")
+				print(f"Total concept images saved: {final_tensor.shape[0]}")
 			else:
 				print("No concepts extracted.")
 			
 			os.rmdir(temp_dir)
 	
-		dist.destroy_process_group()
+	dist.destroy_process_group()
