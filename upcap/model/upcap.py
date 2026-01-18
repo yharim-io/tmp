@@ -19,10 +19,10 @@ class UpCap(nn.Module):
 		)
 	
 	def forward(self, text_concepts: Tensor, token_ids: Tensor) -> Tensor:
-		local_concepts = text_concepts[:, :-1]
-		global_concept = text_concepts[:, -1:]
+		global_concept = text_concepts[:, :1]
+		local_concepts = text_concepts[:, 1:]
 		prefixes = self.attention(local_concepts, getattr(self, 'concepts_feat'))
-		prefixes = torch.cat([prefixes, global_concept], dim=1)
+		prefixes = torch.cat([global_concept, prefixes], dim=1)
 		proj_prefixes = self.mlp(prefixes)
 		text_embeds = self.gpt2.embed(token_ids)
 		inputs = torch.cat([proj_prefixes, text_embeds], dim=1)

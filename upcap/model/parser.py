@@ -9,7 +9,7 @@ class TextParser:
 	
 	def __call__(self, text: str) -> list[str]:
 		doc: Doc = self.nlp(text)
-		concepts = []
+		concepts = [text]
 		
 		for chunk in doc.noun_chunks:
 			if chunk.root.dep_ == 'expl' or chunk.text.lower() in self.expletives:
@@ -23,7 +23,6 @@ class TextParser:
 			
 			concepts.append(concept_text)
 		
-		concepts.append(text)
 		return concepts
 
 if __name__ == '__main__':

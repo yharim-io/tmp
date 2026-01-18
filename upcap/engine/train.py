@@ -108,19 +108,24 @@ def train(
 			M = text_concepts.shape[1]
 			
 			logits = upcap_model(text_concepts, token_ids)
+			logits = logits[:, M - 1: -1]
 			
-			logits_for_loss = logits[:, M-1 : -1, :]
+			token_ids = token_ids.flatten()
+			logits = logits.reshape(-1, logits.shape[-1])
 			
-			loss = loss_ce(logits_for_loss.reshape(-1, logits.shape[-1]), token_ids.reshape(-1))
+			loss_token = loss_ce(logits, token_ids)
+			ac_token = ((logits.argmax(1) == token_ids) * (token_ids > 0)).sum() / (token_ids > 0).sum()
 			
 			optimizer.zero_grad()
-			loss.backward()
+			loss_all = loss_token
+			loss_all.backward()
 			optimizer.step()
 			scheduler.step()
 			
 			if Cfg.is_master:
 				progress.set_postfix({
-					'loss': loss.item()
+					'loss_token': loss_token.item(),
+					'ac_token': ac_token.item()
 				})
 				progress.update()
 			
