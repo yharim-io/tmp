@@ -10,12 +10,14 @@ class ConceptAttention(nn.Module):
 		self.v_proj = nn.Linear(dim, dim, bias=False)
 		self.scale = dim ** -0.5
 		
-	def forward(self, text_concepts: Tensor, concept_bank: Tensor) -> Tensor:
-		Q = self.q_proj(text_concepts)
-		K = self.k_proj(concept_bank)
-		V = self.v_proj(concept_bank)
+	def forward(self, text_concepts: Tensor, concepts_feat: Tensor) -> Tensor:
+		Q: Tensor = self.q_proj(text_concepts)
+		K: Tensor = self.k_proj(concepts_feat)
+		V: Tensor = self.v_proj(concepts_feat)
 		
-		attn_score = (Q @ K.transpose(-2, -1)) * self.scale
-		attn_probs = attn_score.softmax(dim=-1)
+		attn_score: Tensor = (Q @ K.transpose(-2, -1)) * self.scale
+		attn_probs: Tensor = attn_score.softmax(dim=-1)
 		
-		return attn_probs @ V
+		o: Tensor = attn_probs @ V
+		
+		return o

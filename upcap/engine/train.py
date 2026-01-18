@@ -6,21 +6,65 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
+import clip
 import os
 from tqdm import tqdm
 from datetime import datetime
 from pathlib import Path
 
 from upcap.model.upcap import UpCap
+from upcap.model.parser import TextParser
 from upcap.config import Cfg
 
 def get_time_now() -> str:
 	now = datetime.now()
 	return now.strftime("%Y-%m-%d_%H:%M")
 
+class CollateFn:
+	def __init__(self):
+		self.parser = TextParser()
+		self.clip_model, _ = clip.load(
+			Cfg.clip_pretrained_path,
+			device='cpu',
+			jit=False
+		)
+		self.clip_model.eval()
+
+	def __call__(self, batch):
+		texts = [item['text'] for item in batch]
+		
+		all_concepts = []
+		all_tokens = []
+		
+		for text in texts:
+			concepts = self.parser(text)
+			
+			concept_tokens = clip.tokenize(concepts, truncate=True)
+			with torch.no_grad():
+				concept_feats = self.clip_model.encode_text(concept_tokens)
+				concept_feats = concept_feats / concept_feats.norm(dim=-1, keepdim=True)
+			all_concepts.append(concept_feats)
+			
+			tokens = clip.tokenize(text, truncate=True).squeeze(0)
+			all_tokens.append(tokens)
+
+		padded_concepts = torch.zeros(len(batch), Cfg.max_concepts, Cfg.clip_dim)
+		padded_tokens = torch.zeros(len(batch), Cfg.max_seq_length, dtype=torch.long)
+
+		for i, (c, t) in enumerate(zip(all_concepts, all_tokens)):
+			n_c = min(c.shape[0], Cfg.max_concepts)
+			padded_concepts[i, :n_c] = c[:n_c]
+			
+			n_t = min(t.shape[0], Cfg.max_seq_length)
+			padded_tokens[i, :n_t] = t[:n_t]
+
+		return {
+			'text_concepts': padded_concepts,
+			'token_ids': padded_tokens
+		}
+
 def train(
 	dataset: Dataset,
-	collate_fn,
 	output_dir: Path,
 	epochs: int = 10,
 	start_epoch: int = 0,
@@ -63,6 +107,8 @@ def train(
 	
 	sampler = DistributedSampler(dataset)
 	
+	collate_fn = CollateFn()
+	
 	dataloader = DataLoader(
 		dataset=dataset,
 		sampler=sampler,
@@ -75,7 +121,7 @@ def train(
 	
 	scheduler = get_linear_schedule_with_warmup(
 		optimizer,
-		num_warmup_steps=1000,
+		num_warmup_steps=Cfg.warmup_steps,
 		num_training_steps=epochs * len(dataloader)
 	)
 	
@@ -121,7 +167,7 @@ def train(
 			progress.close()
 			torch.save(
 				upcap_model.module.state_dict(),
-				os.path.join(output_dir, f"{epoch:03d}.pt")
+				output_dir / f"{epoch:03d}.pt"
 			)
 			
 	return upcap_model

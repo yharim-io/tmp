@@ -25,3 +25,8 @@ class TextParser:
 		
 		concepts.append(text)
 		return concepts
+
+if __name__ == '__main__':
+	text_parser = TextParser()
+	result = text_parser('there is a mie in japan.')
+	print(result)

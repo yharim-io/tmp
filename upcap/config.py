@@ -3,12 +3,14 @@ from pathlib import Path
 
 class _Path:
 	concepts_image_path: Path = ConfigBase.root / 'data/upcap/concepts_image.pt'
-	concepts_feat_path: Path = ConfigBase.root / 'data/upcap/concepts_clip.pt'
-	upcap_output_dir: Path = ConfigBase.root / 'data/upcap/checkpoints/'
+	concepts_feat_path: Path = ConfigBase.root / 'data/upcap/concepts_feat.pt'
 
 class _Param:
-	learning_rate: float = 1e-4
-	batch_size: int = 64
+	factor: int = 8
+	batch_size: int = 64 * factor
+	learning_rate: float = 1e-5 * factor
+	warmup_steps: int = 1000 // factor
+	
 	max_concepts: int = 10
 
 class Config(ConfigBase, _Path, _Param):
