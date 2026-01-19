@@ -16,8 +16,12 @@ class GPT2(nn.Module):
 		self.emb_size = gpt2config.n_embd
 		self.ember = self.core.get_input_embeddings()
 	
-	def forward_embeds(self, inputs_embeds: Tensor) -> Tensor:
-		return self.core(inputs_embeds=inputs_embeds).logits
+	def forward_embeds(self, inputs_embeds: Tensor, past_key_values=None, use_cache:bool=False):
+		out = self.core(inputs_embeds=inputs_embeds, past_key_values=past_key_values, use_cache=True)
+		if use_cache:
+			return out.logits, out.past_key_values
+		else:
+			return out.logits
 	
 	def embed(self, token_ids: Tensor) -> Tensor:
 		return self.ember(token_ids)

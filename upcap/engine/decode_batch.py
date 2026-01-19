@@ -26,21 +26,28 @@ def decode_batch(
 	
 	prefixes = upcap_model.attention(local_concepts, getattr(upcap_model, 'concepts_feat'))
 	prefixes = torch.cat([global_concept, prefixes], dim=1)
-	emb_cat = upcap_model.mlp(prefixes)
+	
+	prefix_embeds = upcap_model.mlp(prefixes)
+	
+	sot_token = torch.full((batch_size, 1), Cfg.sot_token_id, device=text_concepts.device, dtype=torch.long)
+	sot_emb = upcap_model.gpt2.embed(sot_token)
+	
+	current_embeds = torch.cat([prefix_embeds, sot_emb], dim=1)
 	
 	entry_length = Cfg.max_seq_length
 	tokens = torch.zeros((batch_size, 0), dtype=torch.long, device=text_concepts.device)
 	
+	past_key_values = None
+
 	for _ in range(entry_length):
 		
-		logits = upcap_model.gpt2.forward_embeds(inputs_embeds=emb_cat)
+		logits, past_key_values = upcap_model.gpt2.forward_embeds(inputs_embeds=current_embeds, past_key_values=past_key_values, use_cache=True)
 		logits = logits[:, -1, :]
 		
 		next_token_id = torch.argmax(logits, dim=-1).unsqueeze(1)
 		tokens = torch.cat((tokens, next_token_id), dim=1)
 		
-		next_token_embed = upcap_model.gpt2.embed(next_token_id)
-		emb_cat = torch.cat((emb_cat, next_token_embed), dim=1)
+		current_embeds = upcap_model.gpt2.embed(next_token_id)
 	
 	output_texts = []
 	token_lists = tokens.cpu().numpy().tolist()
@@ -101,6 +108,11 @@ def image_to_text_batch(
 		local_feats_list = [torch.empty(0, device=Cfg.device) for _ in counts]
 
 	# 3. Combine and Pad
+	
+	zero_tokens = torch.zeros((1, 77), dtype=torch.long, device=Cfg.device)
+	pad_feat = clip_model.encode_text(zero_tokens).float()
+	pad_feat /= pad_feat.norm(dim=-1, keepdim=True)
+	
 	padded_concepts = []
 	
 	for g_feat, l_feats in zip(global_feats, local_feats_list):
@@ -113,7 +125,8 @@ def image_to_text_batch(
 		
 		pad_len = max_concepts - combined.shape[0]
 		if pad_len > 0:
-			pad = torch.zeros((pad_len, combined.shape[1]), device=combined.device, dtype=combined.dtype)
+			# [Fix] Use pad_feat instead of zeros
+			pad = pad_feat.expand(pad_len, -1)
 			combined = torch.cat([combined, pad], dim=0)
 		padded_concepts.append(combined)
 
