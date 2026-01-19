@@ -72,7 +72,7 @@ def image_to_text(
 	image = Image.open(image_path)
 	image_preprocessed = preprocess(image).unsqueeze(0).to(Cfg.device)
 	
-	global_feat = clip_model.encode_image(image_preprocessed).float()
+	global_feat: Tensor = clip_model.encode_image(image_preprocessed).float()
 	global_feat /= global_feat.norm(dim=-1, keepdim=True)
 	
 	concept_images = divider.process(image_path, bg=False)

@@ -22,13 +22,13 @@ with logger('divider', 'loading'):
 
 with logger('upcap', 'loading'):
 	upcap_model = UpCap()
-	upcap_model.load_state_dict(
-		torch.load(
-			Cfg.root/'data/upcap/coco-2/015.pt',
-			map_location='cpu',
-			weights_only=True
-		)
+	static_dict = torch.load(
+		Cfg.root/'data/upcap/coco-2/015.pt',
+		map_location='cpu',
+		weights_only=True
 	)
+	static_dict.pop('concepts_feat', None) # concepts_feat deprecated
+	upcap_model.load_state_dict(static_dict)
 	upcap_model = upcap_model.to(Cfg.device)
 	upcap_model.eval()
 

@@ -42,7 +42,7 @@ def compute_concepts_image(
 		if not image_paths:
 			continue
 
-		divided_images: Tensor = divider.process_batch(image_paths)
+		divided_images: Tensor = divider.process_batch(image_paths, flatten=True)
 		
 		if divided_images.numel() == 0:
 			continue

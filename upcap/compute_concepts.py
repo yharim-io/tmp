@@ -3,7 +3,6 @@ import torch.distributed as dist
 import clip
 from clip.model import CLIP
 import gc
-import os
 
 from upcap.config import Cfg
 from upcap.engine.compute_concepts import compute_concepts_image, compute_concepts_feat
@@ -12,14 +11,6 @@ from utils.dataset import CocoDataset, DType
 from utils.logger import logger
 	
 def store_concepts_image():
-	
-	torch.cuda.set_device(Cfg.device)
-	dist.init_process_group(backend='nccl', init_method='env://')
-	
-	torch.backends.cudnn.benchmark = True
-	
-	torch.manual_seed(42)
-	torch.cuda.manual_seed_all(42)
 	
 	with logger('divider', 'loading', Cfg.is_master):
 		divider = Divider()
@@ -31,7 +22,7 @@ def store_concepts_image():
 			cache_path = Cfg.coco_train_cache,
 			dtype = DType.IMAGE
 		)
-		dataset.subset(16384)
+		dataset.subset(4096)
 	
 	output_file = Cfg.concepts_image_path
 	temp_dir = output_file.parent / 'temp_parts_image'
@@ -82,18 +73,8 @@ def store_concepts_image():
 				print("No concepts extracted.")
 			
 			# os.rmdir(temp_dir)
-	
-	dist.destroy_process_group()
 
 def store_concepts_feat():
-	
-	torch.cuda.set_device(Cfg.device)
-	if not dist.is_initialized():
-		dist.init_process_group(backend='nccl', init_method='env://')
-	
-	torch.backends.cudnn.benchmark = True
-	torch.manual_seed(42)
-	torch.cuda.manual_seed_all(42)
 	
 	with logger('clip', 'loading', Cfg.is_master):
 		clip_model, _ = clip.load(
@@ -150,10 +131,18 @@ def store_concepts_feat():
 				print("No features extracted.")
 			
 			# os.rmdir(temp_dir)
-	
-	dist.destroy_process_group()
 
 if __name__ == '__main__':
 	
-	# store_concepts_image()
-	store_concepts_feat()
+	torch.cuda.set_device(Cfg.device)
+	dist.init_process_group(backend='nccl', init_method='env://')
+	torch.backends.cudnn.benchmark = True
+	torch.manual_seed(42)
+	torch.cuda.manual_seed_all(42)
+
+	try:
+		store_concepts_image()
+		dist.barrier(device_ids=[torch.cuda.current_device()])
+		store_concepts_feat()
+	finally:
+		dist.destroy_process_group()

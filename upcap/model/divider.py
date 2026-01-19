@@ -37,7 +37,14 @@ class Divider:
 		dilated = F.max_pool2d(mask_float, kernel_size, stride=1, padding=padding)
 		return dilated.squeeze(0).squeeze(0) > 0.5
 
-	def process_batch(self, image_paths: list[os.PathLike], bg: bool = True, hidden_size: int = 320) -> Tensor:
+	def process_batch(
+		self,
+		image_paths: list[os.PathLike],
+		bg: bool = True,
+		hidden_size: int = 320,
+		flatten: bool = True
+	) -> Tensor | list[Tensor]:
+		
 		batch_tensors = []
 		
 		for p in image_paths:
@@ -70,18 +77,28 @@ class Divider:
 			stream=False
 		)
 		
-		output_tensors = []
-		proc_batch = tensor_batch * 255.0
+		if flatten:
+			output_tensors = []
+			proc_batch = tensor_batch * 255.0
 
-		for i, res in enumerate(results):
-			out = self._process_single_result(proc_batch[i], res, bg)
-			if out is not None:
-				output_tensors.append(out)
+			for i, res in enumerate(results):
+				out = self._process_single_result(proc_batch[i], res, bg)
+				if out is not None:
+					output_tensors.append(out)
 
-		if not output_tensors:
-			return torch.empty(0)
-		
-		return torch.cat(output_tensors, dim=0)
+			if not output_tensors:
+				return torch.empty(0)
+			
+			return torch.cat(output_tensors, dim=0)
+		else:
+			output_list = []
+			proc_batch = tensor_batch * 255.0
+
+			for i, res in enumerate(results):
+				out = self._process_single_result(proc_batch[i], res, bg)
+				output_list.append(out if out is not None else torch.empty(0, device=Cfg.device))
+
+			return output_list
 
 	def _process_single_result(self, image: Tensor, result: Results, bg: bool) -> Tensor | None:
 		if result.masks is None:
