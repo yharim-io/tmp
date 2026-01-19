@@ -21,11 +21,11 @@ def decode(
 	
 	upcap_model.eval()
 	
-	global_concept = text_concepts[:, :1]
-	local_concepts = text_concepts[:, 1:]
-	
-	prefixes = upcap_model.attention(local_concepts, getattr(upcap_model, 'concepts_feat'))
-	prefixes = torch.cat([global_concept, prefixes], dim=1)
+	# global_concept = text_concepts[:, :1]
+	# local_concepts = text_concepts[:, 1:]
+	# prefixes = upcap_model.attention(local_concepts, upcap_model.concepts_feat)
+	# prefixes = torch.cat([global_concept, prefixes], dim=1)
+	prefixes = upcap_model.attention(text_concepts, upcap_model.concepts_feat)
 
 	prefix_embeds = upcap_model.mlp(prefixes)
 
@@ -38,11 +38,21 @@ def decode(
 	tokens = None
 	past_key_values = None
 	
+	# ass_back_here: set = set()
+	
 	for _ in range(entry_length):
 		
 		logits, past_key_values = upcap_model.gpt2.forward_embeds(inputs_embeds=current_embeds, past_key_values=past_key_values, use_cache=True)
-		logits = logits[:, -1, :]
+		logits: Tensor = logits[:, -1, :]
+		
+		# for token_id in ass_back_here:
+		# 	if logits[0, token_id] > 0:
+		# 		logits[0, token_id] /= 1.2
+		# 	else:
+		# 		logits[0, token_id] *= 1.2
+		
 		next_token_id = torch.argmax(logits, -1).unsqueeze(0)
+		# ass_back_here.add(next_token_id.item())
 		
 		next_token_embed = upcap_model.gpt2.embed(next_token_id)
 		
@@ -82,7 +92,7 @@ def image_to_text(
 	global_feat: Tensor = clip_model.encode_image(image_preprocessed).float()
 	global_feat /= global_feat.norm(dim=-1, keepdim=True)
 	
-	concept_images = divider.process(image_path, bg=False)
+	concept_images = divider.process(image_path, bg=False, flatten=True)
 	
 	if concept_images.numel() > 0:
 		concept_images = concept_images.permute(0, 3, 1, 2).float()

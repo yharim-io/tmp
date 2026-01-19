@@ -28,8 +28,14 @@ class Divider:
 			if tmp.exists():
 				os.remove(tmp)
 
-	def process(self, image_path: os.PathLike, bg: bool = True, hidden_size: int = 320) -> Tensor:
-		return self.process_batch([image_path], bg, hidden_size)
+	def process(
+		self,
+		image_path: os.PathLike,
+		bg: bool = True,
+		hidden_size: int = 320,
+		flatten: bool = True,
+	) -> Tensor:
+		return self.process_batch([image_path], bg, hidden_size, flatten)
 
 	def dilate_mask(self, mask: Tensor, kernel_size: int = 15) -> Tensor:
 		mask_float = mask.float().unsqueeze(0).unsqueeze(0)

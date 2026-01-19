@@ -18,8 +18,8 @@ from utils.metric import MetricEvaluator
 from utils.logger import logger
 
 DATASPACE = Cfg.root/'data/upcap/coco'
-MODEL_WEIGHTS = DATASPACE/'007.pt'
-CACHE_PATH = DATASPACE/'run_model_007.pt'
+MODEL_WEIGHTS = DATASPACE/'013.pt'
+CACHE_PATH = DATASPACE/'run_model_013.pt'
 
 def run_model(
 	dataset: Dataset,
@@ -166,7 +166,7 @@ if __name__ == '__main__':
 			dataset,
 			clip_model, preprocess, tokenizer, upcap_model, divider,
 			cache_path=CACHE_PATH,
-			use_cache=False
+			use_cache=True
 		)
 
 	if Cfg.is_master:
