@@ -22,7 +22,7 @@ def store_concepts_image():
 			cache_path = Cfg.coco_train_cache,
 			dtype = DType.IMAGE
 		)
-		dataset.subset(4096)
+		dataset.subset(16384)
 	
 	output_file = Cfg.concepts_image_path
 	temp_dir = output_file.parent / 'temp_parts_image'

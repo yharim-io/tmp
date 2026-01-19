@@ -19,8 +19,13 @@ class CollateFn:
 		for text in raw_texts:
 			concept_strings = self.parser(text)
 			
+			refined_concepts = [
+				c if i == 0 else f"a photo of {c}"
+				for i, c in enumerate(concept_strings)
+			]
+			
 			# [N_concepts, 77]
-			sample_concepts_tensor: Tensor = clip.tokenize(concept_strings, truncate=True)
+			sample_concepts_tensor: Tensor = clip.tokenize(refined_concepts, truncate=True)
 			batch_concepts_list.append(sample_concepts_tensor)
 			
 			# [77]
