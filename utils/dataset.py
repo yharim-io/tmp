@@ -7,9 +7,10 @@ from torchvision.transforms import Compose
 import json
 from pathlib import Path
 from PIL import Image
+import os
+os.environ["TQDM_NCOLS"] = "40"
 from tqdm import tqdm
 from enum import IntFlag
-import os
 
 from utils.config import Config
 

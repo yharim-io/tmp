@@ -1,4 +1,5 @@
 import torch
+import numpy as np
 from torch import nn, Tensor
 
 class ConceptAttention(nn.Module):
@@ -8,7 +9,6 @@ class ConceptAttention(nn.Module):
 		# self.q_proj = nn.Linear(dim, dim, bias=False)
 		# self.k_proj = nn.Linear(dim, dim, bias=False)
 		# self.v_proj = nn.Linear(dim, dim, bias=False)
-		self.scale = dim ** -0.5
 		
 	def forward(self, text_concepts: Tensor, concepts_feat: Tensor) -> Tensor:
 		# Q: Tensor = self.q_proj(text_concepts)
@@ -22,7 +22,7 @@ class ConceptAttention(nn.Module):
 		
 		# return o
 		
-		attn_score: Tensor = (text_concepts @ concepts_feat.transpose(-2, -1)) * self.scale
+		attn_score: Tensor = (text_concepts @ concepts_feat.transpose(-2, -1))
 		attn_probs: Tensor = attn_score.softmax(dim=-1)
 		o = attn_probs @ concepts_feat
 		

@@ -7,7 +7,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 import os
-os.environ["TQDM_NCOLS"] = "70"
+os.environ["TQDM_NCOLS"] = "40"
 from tqdm import tqdm
 from datetime import datetime
 from pathlib import Path
