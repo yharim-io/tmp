@@ -8,7 +8,7 @@ class _Path:
 class _Param:
 	factor: int = 12
 	batch_size: int = 64 * factor
-	learning_rate: float = 1e-5 * factor
+	learning_rate: float = 1e-5
 	warmup_steps: int = 1000 // factor
 	
 	max_concepts: int = 10

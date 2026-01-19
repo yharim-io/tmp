@@ -95,6 +95,9 @@ def image_to_text(
 		local_feats = clip_model.encode_image(concept_images).float()
 		local_feats /= local_feats.norm(dim=-1, keepdim=True)
 		
+		# sort by sim with global concept
+		local_feats = local_feats[(local_feats @ global_feat.T).squeeze(-1).argsort(descending=True)]
+		
 		if local_feats.shape[0] > Cfg.max_concepts - 1:
 			local_feats = local_feats[:Cfg.max_concepts - 1]
 		

@@ -1,8 +1,9 @@
 import torch
 import torch.distributed as dist
 import clip
-import os
 from pathlib import Path
+import os
+os.environ["TQDM_NCOLS"] = "70"
 from tqdm import tqdm
 from clip.model import CLIP
 from clip.simple_tokenizer import SimpleTokenizer

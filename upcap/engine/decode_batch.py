@@ -117,6 +117,8 @@ def image_to_text_batch(
 	
 	for g_feat, l_feats in zip(global_feats, local_feats_list):
 		if l_feats.numel() > 0:
+			# sort by sim with global concept
+			l_feats = l_feats[(l_feats @ g_feat).argsort(descending=True)]
 			if l_feats.shape[0] > max_concepts - 1:
 				l_feats = l_feats[:max_concepts - 1]
 			combined = torch.cat([g_feat.unsqueeze(0), l_feats], dim=0)

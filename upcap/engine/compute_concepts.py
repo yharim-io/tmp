@@ -2,6 +2,8 @@ import torch
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
+import os
+os.environ["TQDM_NCOLS"] = "70"
 from tqdm import tqdm
 from clip.model import CLIP
 

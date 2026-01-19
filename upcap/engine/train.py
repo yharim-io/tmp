@@ -7,6 +7,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 import os
+os.environ["TQDM_NCOLS"] = "70"
 from tqdm import tqdm
 from datetime import datetime
 from pathlib import Path
@@ -98,18 +99,26 @@ def train(
 			text_concept_tokens: Tensor = batch['text_concept_tokens'].to(Cfg.device, non_blocking=True)
 			token_ids: Tensor = batch['token_ids'].to(Cfg.device, non_blocking=True)
 			
+			B, M, L = text_concept_tokens.shape
+			
 			with torch.no_grad():
-				B, M, L = text_concept_tokens.shape
 				flat_tokens = text_concept_tokens.view(-1, L)
 				flat_feats = clip_model.encode_text(flat_tokens)
 				flat_feats = flat_feats / flat_feats.norm(dim=-1, keepdim=True)
 				text_concepts = flat_feats.view(B, M, -1).float()
 			
 			# shuffle local concepts
-			text_concepts = torch.cat([
-				text_concepts[:, :1],
-				text_concepts[:, 1:][:, torch.randperm(text_concepts.shape[1] - 1, device=text_concepts.device)]
-			], dim=1)
+			# text_concepts = torch.cat([
+			# 	text_concepts[:, :1],
+			# 	text_concepts[:, 1:][:, torch.randperm(text_concepts.shape[1] - 1, device=text_concepts.device)]
+			# ], dim=1)
+			
+			# sort by sim with global concept
+			global_c, local_c = text_concepts[:, :1], text_concepts[:, 1:]
+			sim = (local_c @ global_c.transpose(-2, -1)).squeeze(-1)
+			indices = sim.argsort(dim=-1, descending=True)
+			local_c = local_c[torch.arange(B).unsqueeze(-1), indices]
+			text_concepts = torch.cat([global_c, local_c], dim=1)
 
 			M = text_concepts.shape[1]
 			
