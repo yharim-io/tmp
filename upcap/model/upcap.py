@@ -15,6 +15,9 @@ class UpCap(nn.Module):
 		self.gpt2 = GPT2()
 		self.mlp = MLP((Cfg.clip_dim, self.gpt2.emb_size))
 		
+		self.type_embedding = nn.Embedding(2, Cfg.clip_dim)
+		nn.init.normal_(self.type_embedding.weight, std=0.1) # [0.1, 0.5]
+
 		concepts_global_feat_data = torch.load(Cfg.concepts_global_feat_path, weights_only=True).float()
 		self.register_buffer('concepts_global_feat', concepts_global_feat_data, persistent=False)
 
@@ -29,7 +32,13 @@ class UpCap(nn.Module):
 		local_prefixes = self.local_attention(local_concepts, self.concepts_local_feat)
 		prefixes = torch.cat([global_prefixes, local_prefixes], dim=1)
 
+		B, M, D = prefixes.shape
+		type_ids = torch.ones((B, M), dtype=torch.long, device=text_concepts.device)
+		type_ids[:, 0] = 0
+		prefixes += self.type_embedding(type_ids)
+
 		prefix_embeds = self.mlp(prefixes)
+
 		return prefix_embeds
 
 	def forward(self, text_concepts: Tensor, token_ids: Tensor) -> Tensor:

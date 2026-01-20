@@ -17,9 +17,9 @@ from utils.dataset import Dataset, CocoDataset, DType
 from utils.metric import MetricEvaluator
 from utils.logger import logger
 
-DATASPACE = Cfg.root/'data/upcap/coco-5'
-MODEL_WEIGHTS = DATASPACE/'049.pt'
-CACHE_PATH = DATASPACE/'run_model_049.pt'
+DATASPACE = Cfg.root/'data/upcap/coco'
+MODEL_WEIGHTS = DATASPACE/'017.pt'
+CACHE_PATH = DATASPACE/'run_model_017.pt'
 
 def run_model(
 	dataset: Dataset,
@@ -30,7 +30,7 @@ def run_model(
 	divider: Divider,
 	cache_path: Path | None = None,
 	use_cache: bool = True,
-	batch_size: int = 64
+	batch_size: int = 16
 ) -> tuple[dict, dict]:
 	
 	if use_cache and cache_path is not None and cache_path.exists():
