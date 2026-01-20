@@ -20,15 +20,8 @@ def decode_batch(
 	
 	upcap_model.eval()
 	batch_size = text_concepts.shape[0]
-	
-	# global_concept = text_concepts[:, :1]
-	# local_concepts = text_concepts[:, 1:]
-	# prefixes = upcap_model.attention(local_concepts, upcap_model.concepts_feat)
-	# prefixes = torch.cat([global_concept, prefixes], dim=1)
-	
-	prefixes = upcap_model.attention(text_concepts, upcap_model.concepts_feat)
-	
-	prefix_embeds = upcap_model.mlp(prefixes)
+
+	prefix_embeds = upcap_model.concepts_embed(text_concepts)
 	
 	sot_token = torch.full((batch_size, 1), Cfg.sot_token_id, device=text_concepts.device, dtype=torch.long)
 	sot_emb = upcap_model.gpt2.embed(sot_token)

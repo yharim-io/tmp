@@ -10,22 +10,30 @@ class UpCap(nn.Module):
 	
 	def __init__(self):
 		super().__init__()
-		self.attention = ConceptAttention(Cfg.clip_dim)
+		self.global_attention = ConceptAttention(Cfg.clip_dim)
+		self.local_attention = ConceptAttention(Cfg.clip_dim)
 		self.gpt2 = GPT2()
 		self.mlp = MLP((Cfg.clip_dim, self.gpt2.emb_size))
 		
-		feat_data = torch.load(Cfg.concepts_feat_path, weights_only=True).float()
-		self.register_buffer('concepts_feat', feat_data, persistent=False)
+		concepts_global_feat_data = torch.load(Cfg.concepts_global_feat_path, weights_only=True).float()
+		self.register_buffer('concepts_global_feat', concepts_global_feat_data, persistent=False)
+
+		concepts_local_feat_data = torch.load(Cfg.concepts_local_feat_path, weights_only=True).float()
+		self.register_buffer('concepts_local_feat', concepts_local_feat_data, persistent=False)
 	
+	def concepts_embed(self, text_concepts: Tensor) -> Tensor:
+		global_concept = text_concepts[:, :1]
+		local_concepts = text_concepts[:, 1:]
+
+		global_prefixes = self.global_attention(global_concept, self.concepts_global_feat)
+		local_prefixes = self.local_attention(local_concepts, self.concepts_local_feat)
+		prefixes = torch.cat([global_prefixes, local_prefixes], dim=1)
+
+		prefix_embeds = self.mlp(prefixes)
+		return prefix_embeds
+
 	def forward(self, text_concepts: Tensor, token_ids: Tensor) -> Tensor:
-		# global_concept = text_concepts[:, :1]
-		# local_concepts = text_concepts[:, 1:]
-		# prefixes = self.attention(local_concepts, self.concepts_feat)
-		# prefixes = torch.cat([global_concept, prefixes], dim=1)
-		
-		prefixes = self.attention(text_concepts, self.concepts_feat)
-		
-		proj_prefixes = self.mlp(prefixes)
+		prefix_embeds = self.concepts_embed(text_concepts)
 		text_embeds = self.gpt2.embed(token_ids)
-		inputs = torch.cat([proj_prefixes, text_embeds], dim=1)
+		inputs = torch.cat([prefix_embeds, text_embeds], dim=1)
 		return self.gpt2.forward_embeds(inputs)

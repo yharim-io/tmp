@@ -6,6 +6,8 @@ import os
 os.environ["TQDM_NCOLS"] = "40"
 from tqdm import tqdm
 from clip.model import CLIP
+from PIL import Image
+from torchvision.transforms import Compose
 
 from upcap.config import Cfg
 from upcap.model.divider import Divider
@@ -67,7 +69,7 @@ def compute_concepts_local_feat(
 	batch_size: int = 512
 ) -> Tensor:
 	
-	images = torch.load(Cfg.concepts_image_path, map_location='cpu', weights_only=True)
+	images = torch.load(Cfg.concepts_local_image_path, map_location='cpu', weights_only=True)
 	dataset = TensorDataset(images)
 	
 	sampler = DistributedSampler(dataset, shuffle=False)
@@ -103,3 +105,50 @@ def compute_concepts_local_feat(
 		start_idx = end_idx
 
 	return all_features
+
+@torch.inference_mode()
+def compute_concepts_global_feat(
+	dataset: Dataset,
+	clip_model: CLIP,
+	preprocess: Compose,
+	batch_size: int = 64
+) -> Tensor:
+	
+	sampler = DistributedSampler(dataset, shuffle=False)
+	
+	dataloader = DataLoader(
+		dataset,
+		batch_size=batch_size,
+		sampler=sampler,
+		num_workers=8,
+		collate_fn=lambda x: x,
+		pin_memory=True
+	)
+	
+	all_features: list[Tensor] = []
+	
+	if Cfg.is_master:
+		iterator = tqdm(dataloader, desc='Computing Global Features')
+	else:
+		iterator = dataloader
+	
+	for batch in iterator:
+		image_paths = [item.get('image') for item in batch if item.get('image')]
+		if not image_paths:
+			continue
+			
+		images = [preprocess(Image.open(p)) for p in image_paths]
+		if not images:
+			continue
+			
+		img_tensor = torch.stack(images).to(Cfg.device)
+		
+		features = clip_model.encode_image(img_tensor)
+		features /= features.norm(dim=-1, keepdim=True)
+		
+		all_features.append(features.cpu().half())
+		
+	if not all_features:
+		return torch.empty(0)
+		
+	return torch.cat(all_features, dim=0)

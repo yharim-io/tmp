@@ -5,7 +5,9 @@ from clip.model import CLIP
 import gc
 
 from upcap.config import Cfg
-from upcap.engine.compute_concepts import compute_concepts_local_image, compute_concepts_local_feat
+from upcap.engine.compute_concepts import compute_concepts_local_image
+from upcap.engine.compute_concepts import compute_concepts_local_feat
+from upcap.engine.compute_concepts import compute_concepts_global_feat
 from upcap.model.divider import Divider
 from utils.dataset import CocoDataset, DType
 from utils.logger import logger
@@ -24,8 +26,8 @@ def store_concepts_local_image():
 		)
 		dataset.subset(65536)
 	
-	output_file = Cfg.concepts_image_path
-	temp_dir = output_file.parent / 'temp_parts_image'
+	output_file = Cfg.concepts_local_image_path
+	temp_dir = output_file.parent / f'temp_parts_{output_file.stem}'
 	
 	if Cfg.is_master:
 		output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -40,7 +42,7 @@ def store_concepts_local_image():
 			batch_size=256
 		)
 	
-	part_path = temp_dir / f'concepts_image_part_{Cfg.rank}.pt'
+	part_path = temp_dir / f'part_{Cfg.rank}.pt'
 	torch.save(local_concepts, part_path)
 	
 	del local_concepts
@@ -54,7 +56,7 @@ def store_concepts_local_image():
 		with logger('upcap', 'merging images'):
 			all_parts = []
 			for rank in range(dist.get_world_size()):
-				part_file = temp_dir / f'concepts_image_part_{rank}.pt'
+				part_file = temp_dir / f'part_{rank}.pt'
 				if part_file.exists():
 					part_tensor = torch.load(
 						part_file,
@@ -84,8 +86,8 @@ def store_concepts_local_feat():
 		)
 		clip_model.eval()
 
-	output_file = Cfg.concepts_feat_path
-	temp_dir = output_file.parent / 'temp_parts_feat'
+	output_file = Cfg.concepts_local_feat_path
+	temp_dir = output_file.parent / f'temp_parts_{output_file.stem}'
 	
 	if Cfg.is_master:
 		output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -98,7 +100,7 @@ def store_concepts_local_feat():
 			clip_model
 		)
 	
-	part_path = temp_dir / f'concepts_feat_part_{Cfg.rank}.pt'
+	part_path = temp_dir / f'part_{Cfg.rank}.pt'
 	torch.save(local_feats, part_path)
 	
 	del local_feats
@@ -112,7 +114,7 @@ def store_concepts_local_feat():
 		with logger('upcap', 'merging features'):
 			all_parts = []
 			for rank in range(dist.get_world_size()):
-				part_file = temp_dir / f'concepts_feat_part_{rank}.pt'
+				part_file = temp_dir / f'part_{rank}.pt'
 				if part_file.exists():
 					part_tensor = torch.load(
 						part_file,
@@ -132,6 +134,72 @@ def store_concepts_local_feat():
 			
 			# os.rmdir(temp_dir)
 
+def store_concepts_global_feat():
+	
+	with logger('clip', 'loading', Cfg.is_master):
+		clip_model, preprocess = clip.load(
+			Cfg.clip_pretrained_path,
+			device=Cfg.device,
+			jit=False
+		)
+		clip_model.eval()
+
+	with logger('dataset', 'loading', Cfg.is_master):
+		dataset = CocoDataset(
+			annotations = Cfg.coco_train_ann,
+			images_path = Cfg.coco_train_image,
+			cache_path = Cfg.coco_train_cache,
+			dtype = DType.IMAGE
+		)
+
+	output_file = Cfg.concepts_global_feat_path
+	temp_dir = output_file.parent / f'temp_parts_{output_file.stem}'
+	
+	if Cfg.is_master:
+		output_file.parent.mkdir(parents=True, exist_ok=True)
+		temp_dir.mkdir(parents=True, exist_ok=True)
+	
+	dist.barrier(device_ids=[torch.cuda.current_device()])
+	
+	with logger('upcap', 'computing global features', Cfg.is_master):
+		global_feats = compute_concepts_global_feat(
+			dataset,
+			clip_model,
+			preprocess,
+			batch_size=512
+		)
+	
+	part_path = temp_dir / f'part_{Cfg.rank}.pt'
+	torch.save(global_feats, part_path)
+	
+	del global_feats
+	del clip_model
+	gc.collect()
+	torch.cuda.empty_cache()
+	
+	dist.barrier(device_ids=[torch.cuda.current_device()])
+	
+	if Cfg.is_master:
+		with logger('upcap', 'merging global features'):
+			all_parts = []
+			for rank in range(dist.get_world_size()):
+				part_file = temp_dir / f'part_{rank}.pt'
+				if part_file.exists():
+					part_tensor = torch.load(
+						part_file,
+						map_location='cpu',
+						weights_only=True
+					)
+					if part_tensor.numel() > 0:
+						all_parts.append(part_tensor)
+			
+			if all_parts:
+				final_tensor = torch.cat(all_parts, dim=0)
+				torch.save(final_tensor, output_file)
+				print(f"Total global features saved: {final_tensor.shape}")
+			else:
+				print("No global features extracted.")
+
 if __name__ == '__main__':
 	
 	torch.cuda.set_device(Cfg.device)
@@ -141,8 +209,10 @@ if __name__ == '__main__':
 	torch.cuda.manual_seed_all(42)
 
 	try:
-		store_concepts_local_image()
-		dist.barrier(device_ids=[torch.cuda.current_device()])
-		store_concepts_local_feat()
+		# store_concepts_local_image()
+		# dist.barrier(device_ids=[torch.cuda.current_device()])
+		# store_concepts_local_feat()
+		# dist.barrier(device_ids=[torch.cuda.current_device()])
+		store_concepts_global_feat()
 	finally:
 		dist.destroy_process_group()

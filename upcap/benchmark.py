@@ -17,9 +17,9 @@ from utils.dataset import Dataset, CocoDataset, DType
 from utils.metric import MetricEvaluator
 from utils.logger import logger
 
-DATASPACE = Cfg.root/'data/upcap/coco'
-MODEL_WEIGHTS = DATASPACE/'013.pt'
-CACHE_PATH = DATASPACE/'run_model_013.pt'
+DATASPACE = Cfg.root/'data/upcap/coco-5'
+MODEL_WEIGHTS = DATASPACE/'049.pt'
+CACHE_PATH = DATASPACE/'run_model_049.pt'
 
 def run_model(
 	dataset: Dataset,
