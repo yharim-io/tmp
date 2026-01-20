@@ -152,5 +152,7 @@ def train(
 				upcap_model.module.state_dict(),
 				os.path.join(output_dir, f"{epoch:03d}.pt")
 			)
-			
+	
+	dist.destroy_process_group()
+
 	return upcap_model

@@ -5,12 +5,12 @@ from clip.model import CLIP
 import gc
 
 from upcap.config import Cfg
-from upcap.engine.compute_concepts import compute_concepts_image, compute_concepts_feat
+from upcap.engine.compute_concepts import compute_concepts_local_image, compute_concepts_local_feat
 from upcap.model.divider import Divider
 from utils.dataset import CocoDataset, DType
 from utils.logger import logger
 	
-def store_concepts_image():
+def store_concepts_local_image():
 	
 	with logger('divider', 'loading', Cfg.is_master):
 		divider = Divider()
@@ -34,7 +34,7 @@ def store_concepts_image():
 	dist.barrier(device_ids=[torch.cuda.current_device()])
 	
 	with logger('upcap', 'extracting images', Cfg.is_master):
-		local_concepts = compute_concepts_image(
+		local_concepts = compute_concepts_local_image(
 			dataset,
 			divider,
 			batch_size=256
@@ -74,7 +74,7 @@ def store_concepts_image():
 			
 			# os.rmdir(temp_dir)
 
-def store_concepts_feat():
+def store_concepts_local_feat():
 	
 	with logger('clip', 'loading', Cfg.is_master):
 		clip_model, _ = clip.load(
@@ -94,7 +94,7 @@ def store_concepts_feat():
 	dist.barrier(device_ids=[torch.cuda.current_device()])
 	
 	with logger('upcap', 'computing features', Cfg.is_master):
-		local_feats = compute_concepts_feat(
+		local_feats = compute_concepts_local_feat(
 			clip_model
 		)
 	
@@ -141,8 +141,8 @@ if __name__ == '__main__':
 	torch.cuda.manual_seed_all(42)
 
 	try:
-		store_concepts_image()
+		store_concepts_local_image()
 		dist.barrier(device_ids=[torch.cuda.current_device()])
-		store_concepts_feat()
+		store_concepts_local_feat()
 	finally:
 		dist.destroy_process_group()

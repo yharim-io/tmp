@@ -11,7 +11,7 @@ from upcap.config import Cfg
 from upcap.model.divider import Divider
 
 @torch.inference_mode()
-def compute_concepts_image(
+def compute_concepts_local_image(
 	dataset: Dataset,
 	divider: Divider,
 	batch_size: int = 64
@@ -62,7 +62,7 @@ def compute_concepts_image(
 	return torch.cat(all_images, dim=0)
 
 @torch.inference_mode()
-def compute_concepts_feat(
+def compute_concepts_local_feat(
 	clip_model: CLIP,
 	batch_size: int = 512
 ) -> Tensor:

@@ -20,7 +20,7 @@ class CollateFn:
 			concept_strings = self.parser(text)
 			
 			refined_concepts = [
-				c if i == 0 else f"a photo of {c}"
+				c if i == 0 else f'a cutout of {c} isolated on a black background.'
 				for i, c in enumerate(concept_strings)
 			]
 			

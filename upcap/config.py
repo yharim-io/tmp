@@ -2,8 +2,8 @@ from utils.config import Config as ConfigBase
 from pathlib import Path
 
 class _Path:
-	concepts_image_path: Path = ConfigBase.root / 'data/upcap/concepts_image_16384.pt'
-	concepts_feat_path: Path = ConfigBase.root / 'data/upcap/concepts_feat_16384.pt'
+	concepts_image_path: Path = ConfigBase.root / 'data/upcap/concepts_image.pt'
+	concepts_feat_path: Path = ConfigBase.root / 'data/upcap/concepts_feat.pt'
 
 class _Param:
 	factor: int = 12
