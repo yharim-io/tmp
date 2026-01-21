@@ -23,7 +23,7 @@ with logger('divider', 'loading'):
 with logger('upcap', 'loading'):
 	upcap_model = UpCap()
 	static_dict = torch.load(
-		Cfg.root/'data/upcap/coco/017.pt',
+		Cfg.root/'data/upcap/coco/049.pt',
 		map_location='cpu',
 		weights_only=True
 	)
@@ -32,7 +32,7 @@ with logger('upcap', 'loading'):
 	upcap_model = upcap_model.to(Cfg.device)
 	upcap_model.eval()
 
-for i in range(1, 9):
+for i in range(1, 10):
 
 	text = image_to_text(
 		clip_model = clip_model,

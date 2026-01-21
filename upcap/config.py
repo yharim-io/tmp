@@ -6,7 +6,12 @@ class _Path:
 	concepts_local_feat_path: Path = ConfigBase.root / 'data/upcap/concepts_local_feat.pt'
 	concepts_global_feat_path: Path = ConfigBase.root / 'data/upcap/concepts_global_feat.pt'
 
-class _Param:
+class _Model:
+	# https://github.com/openai/CLIP/blob/main/clip/clip.py#L85
+	clip_mean: list[float] = [0.48145466, 0.4578275, 0.40821073]
+	clip_std: list[float] = [0.26862954, 0.26130258, 0.27577711]
+
+class _Schedule:
 	factor: int = 12
 	batch_size: int = 64 * factor
 	learning_rate: float = 1e-5 * factor
@@ -14,7 +19,7 @@ class _Param:
 	
 	max_concepts: int = 10
 
-class Config(ConfigBase, _Path, _Param):
+class Config(ConfigBase, _Path, _Model, _Schedule):
 	pass
 
 class Cfg(Config):

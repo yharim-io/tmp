@@ -32,9 +32,8 @@ def compute_concepts_local_image(
 	
 	all_images: list[Tensor] = []
 	
-	# https://github.com/openai/CLIP/blob/main/clip/clip.py#L85
-	mean = torch.tensor([0.48145466, 0.4578275, 0.40821073], device=Cfg.device).view(1, 3, 1, 1).half()
-	std = torch.tensor([0.26862954, 0.26130258, 0.27577711], device=Cfg.device).view(1, 3, 1, 1).half()
+	mean = torch.tensor(Cfg.clip_mean, device=Cfg.device).view(1, 3, 1, 1).half()
+	std = torch.tensor(Cfg.clip_std, device=Cfg.device).view(1, 3, 1, 1).half()
 	
 	if Cfg.is_master:
 		iterator = tqdm(dataloader, desc='Extracting Concept Images')

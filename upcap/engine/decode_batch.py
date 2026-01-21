@@ -21,23 +21,34 @@ def decode_batch(
 	upcap_model.eval()
 	batch_size = text_concepts.shape[0]
 
-	prefix_embeds = upcap_model.concepts_embed(text_concepts)
-	
 	sot_token = torch.full((batch_size, 1), Cfg.sot_token_id, device=text_concepts.device, dtype=torch.long)
 	sot_emb = upcap_model.gpt2.embed(sot_token)
-	
-	current_embeds = torch.cat([prefix_embeds, sot_emb], dim=1)
+
+	# prefix_embeds = upcap_model.concepts_embed(text_concepts)	
+	# current_embeds = torch.cat([prefix_embeds, sot_emb], dim=1)
+	global_embed, local_embed = upcap_model.concepts_embed(text_concepts)
+	current_embeds = torch.cat([global_embed, sot_emb], dim=1)
 	
 	entry_length = Cfg.max_seq_length
 	tokens = torch.zeros((batch_size, 0), dtype=torch.long, device=text_concepts.device)
-	
 	past_key_values = None
 
 	for _ in range(entry_length):
 		
-		logits, past_key_values = upcap_model.gpt2.forward_embeds(inputs_embeds=current_embeds, past_key_values=past_key_values, use_cache=True)
-		logits = logits[:, -1, :]
+		# logits, past_key_values = upcap_model.gpt2.forward_embeds(
+		# 	inputs_embeds=current_embeds,
+		# 	past_key_values=past_key_values,
+		# 	use_cache=True
+		# )
 		
+		logits, past_key_values = upcap_model.gpt2.forward_embeds(
+			inputs_embeds=current_embeds,
+			encoder_hidden_states=local_embed,
+			past_key_values=past_key_values,
+			use_cache=True
+		)
+		logits = logits[:, -1, :]
+
 		next_token_id = torch.argmax(logits, dim=-1).unsqueeze(1)
 		tokens = torch.cat((tokens, next_token_id), dim=1)
 		
@@ -65,8 +76,8 @@ def image_to_text_batch(
 	
 	upcap_model.eval()
 	
-	mean = torch.tensor([0.48145466, 0.4578275, 0.40821073], device=Cfg.device).view(1, 3, 1, 1)
-	std = torch.tensor([0.26862954, 0.26130258, 0.27577711], device=Cfg.device).view(1, 3, 1, 1)
+	mean = torch.tensor(Cfg.clip_mean, device=Cfg.device).view(1, 3, 1, 1)
+	std = torch.tensor(Cfg.clip_std, device=Cfg.device).view(1, 3, 1, 1)
 	max_concepts = Cfg.max_concepts
 	
 	# 1. Global Features
@@ -76,7 +87,7 @@ def image_to_text_batch(
 	global_feats /= global_feats.norm(dim=-1, keepdim=True)
 	
 	# 2. Local Features (Batch Process)
-	concepts_list = divider.process_batch(image_paths, bg=False, flatten=False)
+	concepts_list = divider.process_batch(image_paths, bg=True, flatten=False)
 	
 	all_concepts = []
 	counts = []

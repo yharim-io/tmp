@@ -123,7 +123,8 @@ def train(
 			M = text_concepts.shape[1]
 			
 			logits = upcap_model(text_concepts, token_ids)
-			logits = logits[:, M - 1: -1]
+			# logits = logits[:, M - 1: -1]
+			logits = logits[:, :-1]
 			
 			token_ids = token_ids.flatten()
 			logits = logits.reshape(-1, logits.shape[-1])

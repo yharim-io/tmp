@@ -11,7 +11,7 @@ from upcap.engine.compute_concepts import compute_concepts_global_feat
 from upcap.model.divider import Divider
 from utils.dataset import CocoDataset, DType
 from utils.logger import logger
-	
+
 def store_concepts_local_image():
 	
 	with logger('divider', 'loading', Cfg.is_master):
@@ -24,7 +24,7 @@ def store_concepts_local_image():
 			cache_path = Cfg.coco_train_cache,
 			dtype = DType.IMAGE
 		)
-		dataset.subset(65536)
+		# dataset.subset(65536)
 	
 	output_file = Cfg.concepts_local_image_path
 	temp_dir = output_file.parent / f'temp_parts_{output_file.stem}'
@@ -209,10 +209,10 @@ if __name__ == '__main__':
 	torch.cuda.manual_seed_all(42)
 
 	try:
-		# store_concepts_local_image()
+		store_concepts_local_image()
 		# dist.barrier(device_ids=[torch.cuda.current_device()])
 		# store_concepts_local_feat()
 		# dist.barrier(device_ids=[torch.cuda.current_device()])
-		store_concepts_global_feat()
+		# store_concepts_global_feat()
 	finally:
 		dist.destroy_process_group()

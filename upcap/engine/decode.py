@@ -21,32 +21,37 @@ def decode(
 	
 	upcap_model.eval()
 
-	prefix_embeds = upcap_model.concepts_embed(text_concepts)
-
 	sot_token = torch.tensor([[Cfg.sot_token_id]], device=text_concepts.device, dtype=torch.long)
 	sot_emb = upcap_model.gpt2.embed(sot_token)
 
-	current_embeds = torch.cat([prefix_embeds, sot_emb], dim=1)
+	# prefix_embeds = upcap_model.concepts_embed(text_concepts)
+	# current_embeds = torch.cat([prefix_embeds, sot_emb], dim=1)
+	
+	global_embed, local_embed = upcap_model.concepts_embed(text_concepts)
+	current_embeds = torch.cat([global_embed, sot_emb], dim=1)
 
 	entry_length = Cfg.max_seq_length
 	tokens = None
 	past_key_values = None
-	
-	# ass_back_here: set = set()
-	
+
 	for _ in range(entry_length):
 		
-		logits, past_key_values = upcap_model.gpt2.forward_embeds(inputs_embeds=current_embeds, past_key_values=past_key_values, use_cache=True)
+		# logits, past_key_values = upcap_model.gpt2.forward_embeds(
+		# 	inputs_embeds=current_embeds,
+		# 	past_key_values=past_key_values,
+		# 	use_cache=True
+		# )
+		
+		logits, past_key_values = upcap_model.gpt2.forward_embeds(
+			inputs_embeds=current_embeds,
+			encoder_hidden_states=local_embed,
+			past_key_values=past_key_values,
+			use_cache=True
+		)
+
 		logits: Tensor = logits[:, -1, :]
-		
-		# for token_id in ass_back_here:
-		# 	if logits[0, token_id] > 0:
-		# 		logits[0, token_id] /= 1.2
-		# 	else:
-		# 		logits[0, token_id] *= 1.2
-		
+
 		next_token_id = torch.argmax(logits, -1).unsqueeze(0)
-		# ass_back_here.add(next_token_id.item())
 		
 		next_token_embed = upcap_model.gpt2.embed(next_token_id)
 		
@@ -86,14 +91,14 @@ def image_to_text(
 	global_feat: Tensor = clip_model.encode_image(image_preprocessed).float()
 	global_feat /= global_feat.norm(dim=-1, keepdim=True)
 	
-	concept_images = divider.process(image_path, bg=False, flatten=True)
+	concept_images = divider.process(image_path, bg=True, flatten=True)
 	
 	if concept_images.numel() > 0:
 		concept_images = concept_images.permute(0, 3, 1, 2).float()
 		concept_images = F.interpolate(concept_images, size=(224, 224), mode='bilinear', align_corners=False)
 		concept_images /= 255.0
-		mean = torch.tensor([0.48145466, 0.4578275, 0.40821073], device=Cfg.device).view(1, 3, 1, 1)
-		std = torch.tensor([0.26862954, 0.26130258, 0.27577711], device=Cfg.device).view(1, 3, 1, 1)
+		mean = torch.tensor(Cfg.clip_mean, device=Cfg.device).view(1, 3, 1, 1)
+		std = torch.tensor(Cfg.clip_std, device=Cfg.device).view(1, 3, 1, 1)
 		concept_images = (concept_images - mean) / std
 		
 		local_feats = clip_model.encode_image(concept_images).float()

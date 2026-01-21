@@ -12,12 +12,24 @@ class GPT2(nn.Module):
 		super().__init__()
 		with open(Cfg.gpt2_config_path, 'rb') as f:
 			gpt2config: GPT2Config = pickle.load(f)
+		gpt2config.add_cross_attention = True
 		self.core = GPT2LMHeadModel(gpt2config)
 		self.emb_size = gpt2config.n_embd
 		self.ember = self.core.get_input_embeddings()
 	
-	def forward_embeds(self, inputs_embeds: Tensor, past_key_values=None, use_cache:bool=False):
-		out = self.core(inputs_embeds=inputs_embeds, past_key_values=past_key_values, use_cache=True)
+	def forward_embeds(
+		self,
+		inputs_embeds: Tensor,
+		encoder_hidden_states = None,
+		past_key_values = None,
+		use_cache:bool = False
+	):
+		out = self.core(
+			inputs_embeds=inputs_embeds,
+			encoder_hidden_states=encoder_hidden_states,
+			past_key_values=past_key_values,
+			use_cache=True
+		)
 		if use_cache:
 			return out.logits, out.past_key_values
 		else:
