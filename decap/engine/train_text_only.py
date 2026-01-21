@@ -6,28 +6,40 @@ from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
+import clip
 import os
-os.environ["TQDM_NCOLS"] = "40"
 from tqdm import tqdm
 from datetime import datetime
 from pathlib import Path
-import clip
 
-from upcap.model.upcap import UpCap
-from upcap.config import Cfg
+from decap.layer.decap import DeCap
+from decap.config import Cfg
 
 def get_time_now() -> str:
 	now = datetime.now()
 	return now.strftime("%Y-%m-%d_%H:%M")
 
-def train(
+def pad_tensor(tensor: Tensor, max_len: int, dim: int) -> Tensor:
+	current_len: int = tensor.shape[dim]
+	padding: int = max_len - current_len
+
+	if padding > 0:
+		pad_shape = list(tensor.shape)
+		pad_shape[dim] = padding
+		pad_tensor = torch.zeros(pad_shape, dtype=tensor.dtype, device=tensor.device)
+		tensor = torch.cat([tensor, pad_tensor], dim=dim)
+	elif padding < 0:
+		tensor = tensor.narrow(dim, 0, max_len)
+
+	return tensor
+
+def train_text_only(
 	dataset: Dataset,
-	collate_fn,
 	output_dir: Path,
 	epochs: int = 10,
 	start_epoch: int = 0,
 	init_weights: Path | None = None,
-) -> UpCap:
+) -> DeCap:
 	
 	batch_size = Cfg.batch_size
 	lr = Cfg.learning_rate
@@ -43,10 +55,10 @@ def train(
 	torch.cuda.manual_seed_all(42)
 	torch.manual_seed(42)
 	
-	upcap_model = UpCap()
+	decap_model = DeCap()
 	
 	if init_weights is not None:
-		upcap_model.load_state_dict(
+		decap_model.load_state_dict(
 			torch.load(
 				init_weights,
 				map_location=torch.device('cpu'),
@@ -54,17 +66,17 @@ def train(
 			)
 		)
 	
-	upcap_model.to(Cfg.device)
-	upcap_model = DDP(
-		module=upcap_model,
+	clip_model, preprocess = clip.load(Cfg.clip_pretrained_path, device=Cfg.device, jit=False)
+	clip_model.eval()
+	
+	decap_model.to(Cfg.device)
+	decap_model = DDP(
+		module=decap_model,
 		device_ids=[Cfg.rank],
 		output_device=Cfg.rank
 	)
-
-	clip_model, _ = clip.load(Cfg.clip_pretrained_path, device=Cfg.device, jit=False)
-	clip_model.eval()
 	
-	optimizer = AdamW(upcap_model.parameters(), lr=lr)
+	optimizer = AdamW(decap_model.parameters(), lr=lr)
 	
 	sampler = DistributedSampler(dataset)
 	
@@ -74,8 +86,7 @@ def train(
 		batch_size=batch_size,
 		drop_last=True,
 		num_workers=8,
-		pin_memory=True,
-		collate_fn=collate_fn
+		pin_memory=True
 	)
 	
 	scheduler = get_linear_schedule_with_warmup(
@@ -92,47 +103,26 @@ def train(
 			print(f">>> Training epoch {epoch}", flush=True)
 			progress = tqdm(total = len(dataloader))
 		
-		sampler.set_epoch(epoch)
 		dist.barrier()
 		
-		for batch in dataloader:
+		for item in dataloader:
 			
-			text_concept_tokens: Tensor = batch['text_concept_tokens'].to(Cfg.device, non_blocking=True)
-			token_ids: Tensor = batch['token_ids'].to(Cfg.device, non_blocking=True)
-			
-			B, M, L = text_concept_tokens.shape
+			text_emb: Tensor = item['text_emb']
+			text_emb = text_emb.to(Cfg.device, non_blocking=True)
 			
 			with torch.no_grad():
-				flat_tokens = text_concept_tokens.view(-1, L)
-				flat_feats = clip_model.encode_text(flat_tokens)
-				flat_feats = flat_feats / flat_feats.norm(dim=-1, keepdim=True)
-				text_concepts = flat_feats.view(B, M, -1).float()
+				clip_feature = clip_model.encode_text(text_emb)
+				clip_feature /= clip_feature.norm(dim=-1, keepdim=True)
 			
-			# shuffle local concepts
-			# text_concepts = torch.cat([
-			# 	text_concepts[:, :1],
-			# 	text_concepts[:, 1:][:, torch.randperm(text_concepts.shape[1] - 1, device=text_concepts.device)]
-			# ], dim=1)
-			
-			# sort by sim with global concept
-			global_c, local_c = text_concepts[:, :1], text_concepts[:, 1:]
-			sim = (local_c @ global_c.transpose(-2, -1)).squeeze(-1)
-			sim[text_concept_tokens[:, 1:].sum(dim=-1) == 0] = -float('inf')
-			indices = sim.argsort(dim=-1, descending=True)
-			local_c = local_c[torch.arange(B).unsqueeze(-1), indices]
-			text_concepts = torch.cat([global_c, local_c], dim=1)
-
-			M = text_concepts.shape[1]
-			
-			logits = upcap_model(text_concepts, token_ids)
-			# logits = logits[:, M - 1: -1]
-			logits = logits[:, :-1]
+			token_ids = pad_tensor(text_emb, Cfg.max_seq_length, 1)
+			logits = decap_model(clip_feature.float(), token_ids)
+			logits = logits[:, : -1]
 			
 			token_ids = token_ids.flatten()
 			logits = logits.reshape(-1, logits.shape[-1])
 			
 			loss_token = loss_ce(logits, token_ids)
-			ac_token = ((logits.argmax(1) == token_ids) * (token_ids > 0)).sum() / (token_ids > 0).sum()
+			ac_token = ((logits.argmax(1)==token_ids) * (token_ids>0)).sum() / (token_ids>0).sum()
 			
 			optimizer.zero_grad()
 			loss_all = loss_token
@@ -152,10 +142,8 @@ def train(
 				f.writelines(f'epoch {epoch}: {progress.postfix}\n')
 			progress.close()
 			torch.save(
-				upcap_model.module.state_dict(),
+				decap_model.module.state_dict(),
 				os.path.join(output_dir, f"{epoch:03d}.pt")
 			)
-	
-	dist.destroy_process_group()
-
-	return upcap_model
+			
+	return decap_model

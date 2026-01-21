@@ -24,7 +24,7 @@ with logger('divider', 'loading'):
 with logger('upcap', 'loading'):
 	upcap_model = UpCap()
 	static_dict = torch.load(
-		Cfg.root/'data/upcap/coco/003.pt',
+		Cfg.root/'data/upcap/coco/002.pt',
 		map_location='cpu',
 		weights_only=True
 	)

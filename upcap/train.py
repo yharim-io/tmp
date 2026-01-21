@@ -1,7 +1,7 @@
-from upcap.config import Cfg
 from utils.dataset import CocoDataset, DType
-from upcap.engine.train import train
 from upcap.engine.collate import CollateFn
+from upcap.engine.train import train
+from upcap.config import Cfg
 
 if __name__ == '__main__':
 	
@@ -19,6 +19,6 @@ if __name__ == '__main__':
 		collate_fn,
 		output_dir = Cfg.root/'data/upcap/coco',
 		epochs = 50,
-		# start_epoch = 1,
-		# init_weights = Cfg.root/'data/upcap/coco/000.pt'
+		start_epoch = 1,
+		init_weights = Cfg.root/'data/upcap/coco/000.pt'
 	)
