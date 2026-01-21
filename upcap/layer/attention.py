@@ -11,6 +11,7 @@ class ConceptAttention(nn.Module):
 		# self.v_proj = nn.Linear(dim, dim, bias=False)
 
 		self.logit_scale = nn.Parameter(torch.tensor(1024.0).log())
+		# self.scale = 1024.0
 		
 	def forward(self, text_concepts: Tensor, concepts_feat: Tensor) -> Tensor:
 		# scale = self.logit_scale.exp()

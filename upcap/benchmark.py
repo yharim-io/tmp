@@ -18,8 +18,8 @@ from utils.metric import MetricEvaluator
 from utils.logger import logger
 
 DATASPACE = Cfg.root/'data/upcap/coco'
-MODEL_WEIGHTS = DATASPACE/'049.pt'
-CACHE_PATH = DATASPACE/'run_model_049_bg.pt'
+MODEL_WEIGHTS = DATASPACE/'002.pt'
+CACHE_PATH = DATASPACE/'run_model_002_bg.pt'
 
 def run_model(
 	dataset: Dataset,
@@ -119,6 +119,48 @@ def run_model(
 
 	return ground_truth_annotations, model_predictions
 
+def merge_cache(
+	dataset: Dataset,
+	cache_path: Path,
+) -> tuple[dict, dict]:
+	
+	ground_truth_annotations: dict = {}
+
+	for i in range(len(dataset)):
+		item = dataset[i]
+		image_path = Path(item['image'])
+		image_id = str(image_path.name)
+		caption_text = item['text']
+
+		if image_id not in ground_truth_annotations:
+			ground_truth_annotations[image_id] = []
+		ground_truth_annotations[image_id].append(caption_text)
+
+	world_size = dist.get_world_size()
+	temp_dir = DATASPACE / 'temp_results'
+
+	if Cfg.is_master:
+		full_predictions: dict = {}
+		for r in range(world_size):
+			part_file = temp_dir / f'part_{r}.pt'
+			part_pred = torch.load(part_file, weights_only=True)
+			full_predictions.update(part_pred)
+			# os.remove(part_file)
+		# os.rmdir(temp_dir)
+		
+		model_predictions = full_predictions
+
+		if cache_path is not None:
+			print(f"Saving full results to {cache_path}")
+			torch.save(
+				(ground_truth_annotations, model_predictions), cache_path)
+	
+	if not Cfg.is_master:
+		ground_truth_annotations = {}
+		model_predictions = {}
+
+	return ground_truth_annotations, model_predictions
+
 if __name__ == '__main__':
 	
 	dist.init_process_group(backend='nccl', init_method='env://')
@@ -168,6 +210,7 @@ if __name__ == '__main__':
 			cache_path=CACHE_PATH,
 			use_cache=True
 		)
+		# ground_truths, predictions = merge_cache(dataset, CACHE_PATH)
 
 	if Cfg.is_master:
 		with logger('upcap', 'evaluating'):

@@ -5,6 +5,7 @@ from torch import Tensor
 from torch.nn import functional as F
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
+from concurrent.futures import ThreadPoolExecutor
 import os
 
 from .inpainter import Inpainter
@@ -76,35 +77,34 @@ class Divider:
 			device=Cfg.device,
 			retina_masks=False,
 			imgsz=hidden_size,
-			conf=0.2, 
+			conf=0.2,
 			iou=0.9,
 			half=True,
 			verbose=False,
 			stream=False
 		)
 		
-		if flatten:
-			output_tensors = []
-			proc_batch = tensor_batch * 255.0
+		proc_batch = tensor_batch * 255.0
+		
+		with ThreadPoolExecutor(max_workers=8) as executor:
+			futures = [
+				executor.submit(self._process_single_result, proc_batch[i], res, bg)
+				for i, res in enumerate(results)
+			]
+			processed_results = [f.result() for f in futures]
 
-			for i, res in enumerate(results):
-				out = self._process_single_result(proc_batch[i], res, bg)
-				if out is not None:
-					output_tensors.append(out)
+		if flatten:
+			output_tensors = [out for out in processed_results if out is not None]
 
 			if not output_tensors:
 				return torch.empty(0)
 			
 			return torch.cat(output_tensors, dim=0)
 		else:
-			output_list = []
-			proc_batch = tensor_batch * 255.0
-
-			for i, res in enumerate(results):
-				out = self._process_single_result(proc_batch[i], res, bg)
-				output_list.append(out if out is not None else torch.empty(0, device=Cfg.device))
-
-			return output_list
+			return [
+				out if out is not None else torch.empty(0, device=Cfg.device)
+				for out in processed_results
+			]
 
 	def _process_single_result(self, image: Tensor, result: Results, bg: bool) -> Tensor | None:
 		if result.masks is None:
@@ -112,18 +112,11 @@ class Divider:
 
 		# result.masks.data 已经在 GPU 上
 		masks = result.masks.data
-		cls_ids = result.boxes.cls.int()
-
-		# GPU 上的掩码合并逻辑
-		unique_cls = torch.unique(cls_ids)
-		merged_list = []
-		for c in unique_cls:
-			merged_list.append(masks[cls_ids == c].amax(dim=0))
-		
-		if not merged_list:
+		# 移除按类别合并逻辑，直接使用原始的所有实例掩码
+		if masks.shape[0] == 0:
 			return None
 			
-		merged_masks = torch.stack(merged_list)
+		merged_masks = masks
 		areas = merged_masks.sum(dim=(1, 2))
 		
 		sorted_idx = torch.argsort(areas, descending=True)
@@ -175,7 +168,11 @@ if __name__ == "__main__":
 		results = divider.process_batch([
 			Cfg.root/'data/example/1.jpg',
 			Cfg.root/'data/example/2.jpg',
-			Cfg.root/'data/example/3.jpg'
+			Cfg.root/'data/example/3.jpg',
+			Cfg.root/'data/example/4.jpg',
+			Cfg.root/'data/example/5.jpg',
+			Cfg.root/'data/example/6.jpg',
+			Cfg.root/'data/example/7.jpg'
 		])
 
 	for i, img_tensor in enumerate(results):

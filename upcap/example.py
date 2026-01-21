@@ -6,6 +6,7 @@ from upcap.config import Cfg
 from upcap.model.upcap import UpCap
 from upcap.model.divider import Divider
 from upcap.engine.decode import image_to_text
+from upcap.engine.decode_batch import image_to_text_batch
 from utils.logger import logger
 
 with logger('clip', 'loading'):
@@ -23,7 +24,7 @@ with logger('divider', 'loading'):
 with logger('upcap', 'loading'):
 	upcap_model = UpCap()
 	static_dict = torch.load(
-		Cfg.root/'data/upcap/coco/049.pt',
+		Cfg.root/'data/upcap/coco/003.pt',
 		map_location='cpu',
 		weights_only=True
 	)
@@ -32,15 +33,31 @@ with logger('upcap', 'loading'):
 	upcap_model = upcap_model.to(Cfg.device)
 	upcap_model.eval()
 
-for i in range(1, 10):
+def sequential_test():
+	for i in range(1, 10):
+		text = image_to_text(
+			clip_model = clip_model,
+			preprocess = preprocess,
+			tokenizer = tokenizer,
+			upcap_model = upcap_model,
+			divider = divider,
+			image_path = Cfg.root/f'data/example/{i}.jpg'
+		)
+		print(text)
 
-	text = image_to_text(
+def parallel_test():
+	texts = image_to_text_batch(
 		clip_model = clip_model,
 		preprocess = preprocess,
 		tokenizer = tokenizer,
 		upcap_model = upcap_model,
 		divider = divider,
-		image_path = Cfg.root/f'data/example/{i}.jpg'
+		image_paths = [Cfg.root/f'data/example/{i}.jpg' for i in range(1, 10)]
 	)
+	for t in texts:
+		print(t)
 
-	print(text)
+if __name__ == '__main__':
+	# sequential_test()
+	# print()
+	parallel_test()
