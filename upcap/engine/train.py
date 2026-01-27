@@ -7,19 +7,15 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 import os
-os.environ["TQDM_NCOLS"] = "40"
-from tqdm import tqdm
-from datetime import datetime
 from pathlib import Path
 import clip
 
 from upcap.model.upcap import UpCap
 from upcap.config import Cfg
+from utils.tool import tqdm, get_time_now
+from utils.dist import dist_startup
 
-def get_time_now() -> str:
-	now = datetime.now()
-	return now.strftime("%Y-%m-%d_%H:%M")
-
+@dist_startup()
 def train(
 	dataset: Dataset,
 	collate_fn,
@@ -27,23 +23,24 @@ def train(
 	epochs: int = 10,
 	start_epoch: int = 0,
 	init_weights: Path | None = None,
+	cross_attn: bool = False,
+	lr: float | None = None,
+	warmup_steps: int | None = None,
 ) -> UpCap:
 	
 	batch_size = Cfg.batch_size
-	lr = Cfg.learning_rate
+	if lr is None: lr = Cfg.learning_rate
+	if warmup_steps is None: warmup_steps = Cfg.warmup_steps
 	
-	log_dir = output_dir / 'log/'
+	if Cfg.is_master:
+		log_dir = output_dir / 'log/'
+		os.makedirs(log_dir, exist_ok=True)
+		log_file = log_dir / get_time_now()
 	
-	os.makedirs(output_dir, exist_ok=True)
-	os.makedirs(log_dir, exist_ok=True)
-	log_file = log_dir / get_time_now()
-	
-	torch.cuda.set_device(Cfg.device)
-	dist.init_process_group(backend='nccl', init_method='env://')
-	torch.cuda.manual_seed_all(42)
-	torch.manual_seed(42)
-	
-	upcap_model = UpCap()
+	upcap_model = UpCap(
+		enable_concepts_global_buffer=True,
+		enable_concepts_local_buffer=True,
+	)
 	
 	if init_weights is not None:
 		upcap_model.load_state_dict(
@@ -58,7 +55,8 @@ def train(
 	upcap_model = DDP(
 		module=upcap_model,
 		device_ids=[Cfg.rank],
-		output_device=Cfg.rank
+		output_device=Cfg.rank,
+		# find_unused_parameters=True
 	)
 
 	clip_model, _ = clip.load(Cfg.clip_pretrained_path, device=Cfg.device, jit=False)
@@ -80,7 +78,7 @@ def train(
 	
 	scheduler = get_linear_schedule_with_warmup(
 		optimizer,
-		num_warmup_steps=Cfg.warmup_steps,
+		num_warmup_steps=warmup_steps,
 		num_training_steps=epochs * len(dataloader)
 	)
 	
@@ -108,24 +106,24 @@ def train(
 				flat_feats = flat_feats / flat_feats.norm(dim=-1, keepdim=True)
 				text_concepts = flat_feats.view(B, M, -1).float()
 			
-			# shuffle local concepts
-			# text_concepts = torch.cat([
-			# 	text_concepts[:, :1],
-			# 	text_concepts[:, 1:][:, torch.randperm(text_concepts.shape[1] - 1, device=text_concepts.device)]
-			# ], dim=1)
-			
 			# sort by sim with global concept
-			global_c, local_c = text_concepts[:, :1], text_concepts[:, 1:]
-			sim = (local_c @ global_c.transpose(-2, -1)).squeeze(-1)
-			sim[text_concept_tokens[:, 1:].sum(dim=-1) == 0] = -float('inf')
-			indices = sim.argsort(dim=-1, descending=True)
-			local_c = local_c[torch.arange(B).unsqueeze(-1), indices]
-			text_concepts = torch.cat([global_c, local_c], dim=1)
+			if cross_attn:
+				global_c, local_c = text_concepts[:, :1], text_concepts[:, 1:]
+				sim = (local_c @ global_c.transpose(-2, -1)).squeeze(-1)
+				sim[text_concept_tokens[:, 1:].sum(dim=-1) == 0] = -float('inf')
+				indices = sim.argsort(dim=-1, descending=True)
+				local_c = local_c[torch.arange(B).unsqueeze(-1), indices]
+				text_concepts = torch.cat([global_c, local_c], dim=1)
 
 			M = text_concepts.shape[1]
 			
-			logits = upcap_model(text_concepts, token_ids)
-			# logits = logits[:, M - 1: -1]
+			logits = upcap_model(
+				text_concepts,
+				token_ids,
+				global_attn=True,
+				local_attn=True,
+				cross_attn=cross_attn
+			)
 			logits = logits[:, :-1]
 			
 			token_ids = token_ids.flatten()
@@ -140,10 +138,16 @@ def train(
 			optimizer.step()
 			scheduler.step()
 			
+			last_lr = 0
+			current_lr = scheduler.get_last_lr()[0]
+			if current_lr != 0:
+				last_lr = current_lr
+
 			if Cfg.is_master:
 				progress.set_postfix({
 					'loss_token': loss_token.item(),
-					'ac_token': ac_token.item()
+					'ac_token': ac_token.item(),
+					'lr': last_lr
 				})
 				progress.update()
 			
@@ -153,9 +157,7 @@ def train(
 			progress.close()
 			torch.save(
 				upcap_model.module.state_dict(),
-				os.path.join(output_dir, f"{epoch:03d}.pt")
+				output_dir / f"{epoch:03d}.pt"
 			)
-	
-	dist.destroy_process_group()
 
 	return upcap_model

@@ -8,16 +8,11 @@ from torch.optim import AdamW
 from transformers import get_linear_schedule_with_warmup
 import clip
 import os
-from tqdm import tqdm
-from datetime import datetime
 from pathlib import Path
 
 from decap.layer.decap import DeCap
 from decap.config import Cfg
-
-def get_time_now() -> str:
-	now = datetime.now()
-	return now.strftime("%Y-%m-%d_%H:%M")
+from utils.tool import tqdm, get_time_now
 
 def pad_tensor(tensor: Tensor, max_len: int, dim: int) -> Tensor:
 	current_len: int = tensor.shape[dim]

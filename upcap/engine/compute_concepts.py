@@ -2,15 +2,13 @@ import torch
 from torch import Tensor
 from torch.utils.data import Dataset, DataLoader, TensorDataset
 from torch.utils.data.distributed import DistributedSampler
-import os
-os.environ["TQDM_NCOLS"] = "40"
-from tqdm import tqdm
 from clip.model import CLIP
 from PIL import Image
 from torchvision.transforms import Compose
 
 from upcap.config import Cfg
 from upcap.model.divider import Divider
+from utils.tool import tqdm
 
 # @torch.inference_mode()
 # def compute_concepts_local_image(

@@ -15,7 +15,10 @@ from upcap.model.divider import Divider
 def decode_batch(
 	tokenizer: SimpleTokenizer,
 	upcap_model: UpCap,
-	text_concepts: Tensor
+	text_concepts: Tensor,
+	global_attn: bool = False,
+	local_attn: bool = False,
+	cross_attn: bool = False,
 ) -> list[str]:
 	
 	upcap_model.eval()
@@ -26,7 +29,12 @@ def decode_batch(
 
 	# prefix_embeds = upcap_model.concepts_embed(text_concepts)	
 	# current_embeds = torch.cat([prefix_embeds, sot_emb], dim=1)
-	global_embed, local_embed = upcap_model.concepts_embed(text_concepts)
+	global_embed, local_embed = upcap_model.concepts_embed(
+		text_concepts,
+		global_attn=global_attn,
+		local_attn=local_attn,
+		cross_attn=cross_attn
+	)
 	current_embeds = torch.cat([global_embed, sot_emb], dim=1)
 	
 	entry_length = Cfg.max_seq_length
@@ -35,25 +43,27 @@ def decode_batch(
 
 	for _ in range(entry_length):
 		
-		# logits, past_key_values = upcap_model.gpt2.forward_embeds(
-		# 	inputs_embeds=current_embeds,
-		# 	past_key_values=past_key_values,
-		# 	use_cache=True
-		# )
-		
-		logits, past_key_values = upcap_model.gpt2.forward_embeds(
-			inputs_embeds=current_embeds,
-			encoder_hidden_states=local_embed,
-			past_key_values=past_key_values,
-			use_cache=True
-		)
+		if cross_attn:
+			logits, past_key_values = upcap_model.gpt2.forward_embeds(
+				inputs_embeds=current_embeds,
+				encoder_hidden_states=local_embed,
+				past_key_values=past_key_values,
+				use_cache=True
+			)
+		else:
+			logits, past_key_values = upcap_model.gpt2.forward_embeds(
+				inputs_embeds=current_embeds,
+				past_key_values=past_key_values,
+				use_cache=True
+			)
+
 		logits = logits[:, -1, :]
 
 		next_token_id = torch.argmax(logits, dim=-1).unsqueeze(1)
 		tokens = torch.cat((tokens, next_token_id), dim=1)
 		
 		current_embeds = upcap_model.gpt2.embed(next_token_id)
-	
+
 	output_texts = []
 	token_lists = tokens.cpu().numpy().tolist()
 	
@@ -61,7 +71,11 @@ def decode_batch(
 		text = tokenizer.decode(seq)
 		text = text.replace('<|startoftext|>', '').split('<|endoftext|>')[0]
 		output_texts.append(text)
-		
+	
+	for i in range(len(output_texts)):
+		if len(output_texts[i]) >= 2 and output_texts[i][-2] not in {'.', '!', '?'}:
+			output_texts[i] += '. '
+
 	return output_texts
 
 @torch.no_grad
@@ -71,14 +85,16 @@ def image_to_text_batch(
 	tokenizer: SimpleTokenizer,
 	upcap_model: UpCap,
 	divider: Divider,
-	image_paths: list[Path]
+	image_paths: list[Path],
+	global_attn: bool = False,
+	local_attn: bool = False,
+	cross_attn: bool = False,
 ) -> list[str]:
 	
 	upcap_model.eval()
 	
 	mean = torch.tensor(Cfg.clip_mean, device=Cfg.device).view(1, 3, 1, 1)
 	std = torch.tensor(Cfg.clip_std, device=Cfg.device).view(1, 3, 1, 1)
-	max_concepts = Cfg.max_concepts
 	
 	# 1. Global Features
 	images = [preprocess(Image.open(p)) for p in image_paths]
@@ -87,56 +103,67 @@ def image_to_text_batch(
 	global_feats /= global_feats.norm(dim=-1, keepdim=True)
 	
 	# 2. Local Features (Batch Process)
-	concepts_list = divider.process_batch(image_paths, bg=True, flatten=False)
-	
-	all_concepts = []
-	counts = []
-	for c in concepts_list:
-		if c.numel() > 0:
-			all_concepts.append(c)
-			counts.append(c.shape[0])
+	if cross_attn:
+		concepts_list = divider.process_batch(image_paths, bg=True, flatten=False)
+		
+		all_concepts = []
+		counts = []
+		for c in concepts_list:
+			if c.numel() > 0:
+				all_concepts.append(c)
+				counts.append(c.shape[0])
+			else:
+				counts.append(0)
+		
+		if all_concepts:
+			batch_concepts = torch.cat(all_concepts, dim=0)
+			batch_concepts = batch_concepts.permute(0, 3, 1, 2).float()
+			batch_concepts = F.interpolate(batch_concepts, size=(224, 224), mode='bilinear', align_corners=False)
+			batch_concepts /= 255.0
+			batch_concepts = (batch_concepts - mean) / std
+			
+			all_local_feats = clip_model.encode_image(batch_concepts).float()
+			all_local_feats /= all_local_feats.norm(dim=-1, keepdim=True)
+			
+			local_feats_list = torch.split(all_local_feats, counts)
 		else:
-			counts.append(0)
-	
-	if all_concepts:
-		batch_concepts = torch.cat(all_concepts, dim=0)
-		batch_concepts = batch_concepts.permute(0, 3, 1, 2).float()
-		batch_concepts = F.interpolate(batch_concepts, size=(224, 224), mode='bilinear', align_corners=False)
-		batch_concepts /= 255.0
-		batch_concepts = (batch_concepts - mean) / std
-		
-		all_local_feats = clip_model.encode_image(batch_concepts).float()
-		all_local_feats /= all_local_feats.norm(dim=-1, keepdim=True)
-		
-		local_feats_list = torch.split(all_local_feats, counts)
-	else:
-		local_feats_list = [torch.empty(0, device=Cfg.device) for _ in counts]
+			local_feats_list = [torch.empty(0, device=Cfg.device) for _ in counts]
 
 	# 3. Combine and Pad
 	
-	zero_tokens = torch.zeros((1, 77), dtype=torch.long, device=Cfg.device)
-	pad_feat = clip_model.encode_text(zero_tokens).float()
-	pad_feat /= pad_feat.norm(dim=-1, keepdim=True)
-	
-	padded_concepts = []
-	
-	for g_feat, l_feats in zip(global_feats, local_feats_list):
-		if l_feats.numel() > 0:
-			# sort by sim with global concept
-			l_feats = l_feats[(l_feats @ g_feat).argsort(descending=True)]
-			if l_feats.shape[0] > max_concepts - 1:
-				l_feats = l_feats[:max_concepts - 1]
-			combined = torch.cat([g_feat.unsqueeze(0), l_feats], dim=0)
-		else:
-			combined = g_feat.unsqueeze(0)
+		max_concepts = Cfg.max_concepts
+		zero_tokens = torch.zeros((1, 77), dtype=torch.long, device=Cfg.device)
+		pad_feat = clip_model.encode_text(zero_tokens).float()
+		pad_feat /= pad_feat.norm(dim=-1, keepdim=True)
 		
-		pad_len = max_concepts - combined.shape[0]
-		if pad_len > 0:
-			# [Fix] Use pad_feat instead of zeros
-			pad = pad_feat.expand(pad_len, -1)
-			combined = torch.cat([combined, pad], dim=0)
-		padded_concepts.append(combined)
+		padded_concepts = []
+		
+		for g_feat, l_feats in zip(global_feats, local_feats_list):
+			if l_feats.numel() > 0:
+				# sort by sim with global concept
+				l_feats = l_feats[(l_feats @ g_feat).argsort(descending=True)]
+				if l_feats.shape[0] > max_concepts - 1:
+					l_feats = l_feats[:max_concepts - 1]
+				combined = torch.cat([g_feat.unsqueeze(0), l_feats], dim=0)
+			else:
+				combined = g_feat.unsqueeze(0)
+			
+			pad_len = max_concepts - combined.shape[0]
+			if pad_len > 0:
+				# [Fix] Use pad_feat instead of zeros
+				pad = pad_feat.expand(pad_len, -1)
+				combined = torch.cat([combined, pad], dim=0)
+			padded_concepts.append(combined)
 
-	text_concepts = torch.stack(padded_concepts, dim=0)
+		text_concepts = torch.stack(padded_concepts, dim=0)
+	else:
+		text_concepts = global_feats.unsqueeze(1)
 	
-	return decode_batch(tokenizer, upcap_model, text_concepts)
+	return decode_batch(
+		tokenizer,
+		upcap_model,
+		text_concepts,
+		global_attn=global_attn,
+		local_attn=local_attn,
+		cross_attn=cross_attn
+	)

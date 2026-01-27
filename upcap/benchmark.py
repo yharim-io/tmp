@@ -3,8 +3,6 @@ import torch.distributed as dist
 import clip
 from pathlib import Path
 import os
-os.environ["TQDM_NCOLS"] = "40"
-from tqdm import tqdm
 from clip.model import CLIP
 from clip.simple_tokenizer import SimpleTokenizer
 from torchvision.transforms import Compose
@@ -15,11 +13,16 @@ from upcap.model.divider import Divider
 from upcap.engine.decode_batch import image_to_text_batch
 from utils.dataset import Dataset, CocoDataset, DType
 from utils.metric import MetricEvaluator
+from utils.dist import dist_startup
 from utils.logger import logger
+from utils.tool import tqdm
 
 DATASPACE = Cfg.root/'data/upcap/coco'
-MODEL_WEIGHTS = DATASPACE/'002.pt'
-CACHE_PATH = DATASPACE/'run_model_002_bg.pt'
+MODEL_WEIGHTS = DATASPACE/'001.pt'
+CACHE_PATH = DATASPACE/'run_model_001.pt'
+GLOBAL_ATTN = False
+LOCAL_ATTN = True
+CROSS_ATTN = True
 
 def run_model(
 	dataset: Dataset,
@@ -30,11 +33,12 @@ def run_model(
 	divider: Divider,
 	cache_path: Path | None = None,
 	use_cache: bool = True,
-	batch_size: int = 16
+	batch_size: int = 8
 ) -> tuple[dict, dict]:
 	
 	if use_cache and cache_path is not None and cache_path.exists():
-		print(f'Loading results from {cache_path}')
+		if Cfg.is_master:
+			print(f'Loading results from {cache_path}')
 		return torch.load(cache_path, weights_only=True)
 	
 	ground_truth_annotations: dict = {}
@@ -79,7 +83,10 @@ def run_model(
 			tokenizer=tokenizer,
 			upcap_model=upcap_model,
 			divider=divider,
-			image_paths=batch_paths
+			image_paths=batch_paths,
+			global_attn=GLOBAL_ATTN,
+			local_attn=LOCAL_ATTN,
+			cross_attn=CROSS_ATTN
 		)
 
 		for img_id, text in zip(batch_ids, batch_texts):
@@ -161,12 +168,8 @@ def merge_cache(
 
 	return ground_truth_annotations, model_predictions
 
-if __name__ == '__main__':
-	
-	dist.init_process_group(backend='nccl', init_method='env://')
-	torch.cuda.set_device(Cfg.device)
-	torch.manual_seed(42)
-	torch.cuda.manual_seed(42)
+@dist_startup()
+def main():
 
 	with logger('clip', 'loading', Cfg.is_master):
 		clip_model, preprocess = clip.load(
@@ -192,7 +195,10 @@ if __name__ == '__main__':
 		# dataset.subset(1000)
 
 	with logger('upcap', 'loading', Cfg.is_master):
-		upcap_model = UpCap()
+		upcap_model = UpCap(
+			enable_concepts_global_buffer=GLOBAL_ATTN,
+			enable_concepts_local_buffer=LOCAL_ATTN,
+		)
 		upcap_model = upcap_model.to(Cfg.device)
 		upcap_model.load_state_dict(
 			torch.load(
@@ -219,4 +225,6 @@ if __name__ == '__main__':
 
 		print(scores)
 
-	dist.destroy_process_group()
+if __name__ == '__main__':
+	
+	main()

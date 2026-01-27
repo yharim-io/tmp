@@ -2,7 +2,6 @@ from utils.config import Config as ConfigBase
 from pathlib import Path
 
 class _Path:
-	# concepts_local_image_path: Path = ConfigBase.root / 'data/upcap/concepts_local_image.pt'
 	concepts_local_feat_path: Path = ConfigBase.root / 'data/upcap/concepts_local_feat_65536.pt'
 	concepts_global_feat_path: Path = ConfigBase.root / 'data/upcap/concepts_global_feat.pt'
 
@@ -17,7 +16,7 @@ class _Schedule:
 	learning_rate: float = 1e-5 * factor
 	warmup_steps: int = 1000 // factor
 	
-	max_concepts: int = 10
+	max_concepts: int = 3
 
 class Config(ConfigBase, _Path, _Model, _Schedule):
 	pass

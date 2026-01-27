@@ -16,7 +16,10 @@ from upcap.model.divider import Divider
 def decode(
 	tokenizer: SimpleTokenizer,
 	upcap_model: UpCap,
-	text_concepts: Tensor
+	text_concepts: Tensor,
+	global_attn: bool = False,
+	local_attn: bool = False,
+	cross_attn: bool = False,
 ) -> str:
 	
 	upcap_model.eval()
@@ -27,7 +30,12 @@ def decode(
 	# prefix_embeds = upcap_model.concepts_embed(text_concepts)
 	# current_embeds = torch.cat([prefix_embeds, sot_emb], dim=1)
 	
-	global_embed, local_embed = upcap_model.concepts_embed(text_concepts)
+	global_embed, local_embed = upcap_model.concepts_embed(
+		text_concepts,
+		global_attn=global_attn,
+		local_attn=local_attn,
+		cross_attn=cross_attn
+	)
 	current_embeds = torch.cat([global_embed, sot_emb], dim=1)
 
 	entry_length = Cfg.max_seq_length
@@ -42,12 +50,19 @@ def decode(
 		# 	use_cache=True
 		# )
 		
-		logits, past_key_values = upcap_model.gpt2.forward_embeds(
-			inputs_embeds=current_embeds,
-			encoder_hidden_states=local_embed,
-			past_key_values=past_key_values,
-			use_cache=True
-		)
+		if cross_attn:
+			logits, past_key_values = upcap_model.gpt2.forward_embeds(
+				inputs_embeds=current_embeds,
+				encoder_hidden_states=local_embed,
+				past_key_values=past_key_values,
+				use_cache=True
+			)
+		else:
+			logits, past_key_values = upcap_model.gpt2.forward_embeds(
+				inputs_embeds=current_embeds,
+				past_key_values=past_key_values,
+				use_cache=True
+			)
 
 		logits: Tensor = logits[:, -1, :]
 
@@ -82,6 +97,9 @@ def image_to_text(
 	upcap_model: UpCap,
 	divider: Divider,
 	image_path: Path,
+	global_attn: bool = False,
+	local_attn: bool = False,
+	cross_attn: bool = False,
 ) -> str:
 	upcap_model.eval()
 	
@@ -122,5 +140,13 @@ def image_to_text(
 		pad = pad_feat.expand(1, pad_len, -1)
 		text_concepts = torch.cat([text_concepts, pad], dim=1)
 		
-	text = decode(tokenizer, upcap_model, text_concepts)
+	text = decode(
+		tokenizer,
+		upcap_model,
+		text_concepts,
+		global_attn=global_attn,
+		local_attn=local_attn,
+		cross_attn=cross_attn
+	)
+	
 	return text

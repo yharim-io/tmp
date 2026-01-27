@@ -2,7 +2,6 @@ import torch
 from torch import Tensor
 import clip
 from pathlib import Path
-from tqdm import tqdm
 from clip.model import CLIP
 from clip.simple_tokenizer import SimpleTokenizer
 from torchvision.transforms import Compose
@@ -13,9 +12,11 @@ from decap.engine.decode_batch import calc_text_features, image_to_text_batch
 from utils.dataset import CocoDataset, DType
 from utils.metric import MetricEvaluator
 from utils.logger import logger
+from utils.tool import tqdm
 
-DATA_SPACE = Cfg.root/'data/decap/text_image/coco'
-MODEL_WEIGHTS = DATA_SPACE / '049.pt'
+DATA_SPACE = Cfg.root/'data/decap/text_only/coco'
+MODEL_WEIGHTS = DATA_SPACE / '008.pt'
+CACHE_PATH = DATA_SPACE/'run_model_008.pt'
 
 def get_text_feat(feat_file: Path) -> Tensor:
 	if feat_file.exists():
@@ -127,8 +128,8 @@ if __name__ == '__main__':
 	with logger('decap', 'running'):
 		ground_truths, predictions = run_model(
 			clip_model, preprocess, tokenizer, decap_model, text_features,
-			cache_path=DATA_SPACE/'run_model.pt',
-			use_cache=False
+			cache_path=CACHE_PATH,
+			use_cache=True
 		)
 	
 	with logger('decap', 'evaluating'):

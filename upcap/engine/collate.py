@@ -13,9 +13,9 @@ class CollateFn:
             # 'an image of {}.',
             # 'a picture of {}.',
             # 'a cutout of {}.',
-            # 'a photo of {} isolated on a black background.',
-            # 'an image of {} isolated on a black background.',
-            # 'a picture of {} isolated on a black background.',
+            'a photo of {} isolated on a black background.',
+            'an image of {} isolated on a black background.',
+            'a picture of {} isolated on a black background.',
             'a cutout of {} isolated on a black background.',
         ]
         self.num_map: dict[str, int] = {
@@ -91,6 +91,29 @@ class CollateFn:
             # 处理标题目标 (截断 + 填充)
             num_tokens = min(len(sample_caption), Cfg.max_seq_length)
             padded_caption_batch[i, :num_tokens] = sample_caption[:num_tokens]
+
+        return {
+            'text_concept_tokens': padded_concept_batch,
+            'token_ids': padded_caption_batch
+        }
+
+class GlobalCollateFn:
+    def __call__(self, batch_data):
+        raw_texts = [item['text'] for item in batch_data]
+        batch_size = len(raw_texts)
+        
+        # [batch_size, 77]
+        # 直接对整个 batch 进行 tokenize，不需要循环，效率更高
+        global_tokens = clip.tokenize(raw_texts, truncate=True)
+        
+        # 1. Concept: 仅填充第一个位置 (index 0) 为 global tokens
+        padded_concept_batch = torch.zeros(batch_size, Cfg.max_concepts, 77, dtype=torch.long)
+        padded_concept_batch[:, 0] = global_tokens
+        
+        # 2. Caption: 截取或填充至 max_seq_length
+        padded_caption_batch = torch.zeros(batch_size, Cfg.max_seq_length, dtype=torch.long)
+        valid_len = min(77, Cfg.max_seq_length)
+        padded_caption_batch[:, :valid_len] = global_tokens[:, :valid_len]
 
         return {
             'text_concept_tokens': padded_concept_batch,

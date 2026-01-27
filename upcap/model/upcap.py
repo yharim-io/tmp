@@ -8,7 +8,11 @@ from upcap.layer.attention import ConceptAttention
 
 class UpCap(nn.Module):
 	
-	def __init__(self):
+	def __init__(
+		self,
+		enable_concepts_global_buffer: bool = True,
+		enable_concepts_local_buffer: bool = True,
+	):
 		super().__init__()
 		self.global_attention = ConceptAttention(Cfg.clip_dim)
 		self.local_attention = ConceptAttention(Cfg.clip_dim)
@@ -18,69 +22,69 @@ class UpCap(nn.Module):
 		# self.type_embedding = nn.Embedding(2, Cfg.clip_dim)
 		# nn.init.normal_(self.type_embedding.weight, std=0.1) # [0.1, 0.5]
 
-		concepts_global_feat_data = torch.load(Cfg.concepts_global_feat_path, weights_only=True).float()
-		self.register_buffer('concepts_global_feat', concepts_global_feat_data, persistent=False)
+		if enable_concepts_global_buffer:
+			concepts_global_feat_data = torch.load(Cfg.concepts_global_feat_path, weights_only=True).float()
+			self.register_buffer('concepts_global_feat', concepts_global_feat_data, persistent=False)
+			
 
-		concepts_local_feat_data = torch.load(Cfg.concepts_local_feat_path, weights_only=True).float()
-		self.register_buffer('concepts_local_feat', concepts_local_feat_data, persistent=False)
+		if enable_concepts_local_buffer:
+			concepts_local_feat_data = torch.load(Cfg.concepts_local_feat_path, weights_only=True).float()
+			self.register_buffer('concepts_local_feat', concepts_local_feat_data, persistent=False)
 
 	def concepts_embed(
 		self,
 		text_concepts: Tensor,
-		attn: bool = True
+		global_attn: bool = False,
+		local_attn: bool = False,
+		cross_attn: bool = False,
 	) -> tuple[Tensor, Tensor]:
 		
-		# global_concept = text_concepts[:, :1]
-		# local_concepts = text_concepts[:, 1:]
-
-		# global_prefixes = self.global_attention(global_concept, self.concepts_global_feat)
-		# local_prefixes = self.local_attention(local_concepts, self.concepts_local_feat)
-		# prefixes = torch.cat([global_prefixes, local_prefixes], dim=1)
-
-		# B, M, D = prefixes.shape
-		# type_ids = torch.ones((B, M), dtype=torch.long, device=text_concepts.device)
-		# type_ids[:, 0] = 0
-		# prefixes += self.type_embedding(type_ids)
-
-		# prefix_embeds = self.mlp(prefixes)
-
-		# return prefix_embeds
-
+		# def noise(x: Tensor) -> Tensor:
+		# 	x = x.norm(dim=-1, keepdim=True)
+		# 	_f = (1 - x.pow(2)).clamp(min=1.14514e-6).sqrt()
+		# 	_g = torch.rand_like(x)
+		# 	_g = _g / _g.norm(dim=-1, keepdim=True)
+		# 	return _f * _g
+		
 		global_concept = text_concepts[:, :1]
 		local_concepts = text_concepts[:, 1:]
 
-		local_prefixes = self.local_attention(local_concepts, self.concepts_local_feat)
+		if global_attn:
+			global_concept = self.global_attention(global_concept, self.concepts_global_feat)
+			# global_prefixes = global_prefixes + noise(global_prefixes)
+		global_embed = self.mlp(global_concept)
 
-		if attn:
-			global_prefixes = self.global_attention(global_concept, self.concepts_global_feat)
-		else:
-			global_prefixes = global_concept
+		if not cross_attn:
+			return global_embed, torch.empty(0)
 
-		# B = text_concepts.shape[0]
+		if local_attn:
+			local_concepts = self.local_attention(local_concepts, self.concepts_local_feat)
+		local_embed = self.mlp(local_concepts)
 		
-		# global_type = torch.zeros((B, 1), dtype=torch.long, device=text_concepts.device)
-		# global_prefixes += self.type_embedding(global_type)
-		
-		# local_type = torch.ones((B, local_prefixes.shape[1]), dtype=torch.long, device=text_concepts.device)
-		# local_prefixes += self.type_embedding(local_type)
-
-		global_embed = self.mlp(global_prefixes)
-		local_embed = self.mlp(local_prefixes)
-
 		return global_embed, local_embed
 
-	def forward(self, text_concepts: Tensor, token_ids: Tensor) -> Tensor:
-		# prefix_embeds = self.concepts_embed(text_concepts)
-		# text_embeds = self.gpt2.embed(token_ids)
-		# inputs = torch.cat([prefix_embeds, text_embeds], dim=1)
-		# return self.gpt2.forward_embeds(inputs)
+	def forward(
+		self,
+		text_concepts: Tensor,
+		token_ids: Tensor,
+		global_attn: bool = False,
+		local_attn: bool = False,
+		cross_attn: bool = False
+	) -> Tensor:
 
-		# cross attention
-		global_embed, local_embed = self.concepts_embed(text_concepts)
+		global_embed, local_embed = self.concepts_embed(
+			text_concepts,
+			global_attn=global_attn,
+			local_attn=local_attn,
+			cross_attn=cross_attn
+		)
 		text_embeds = self.gpt2.embed(token_ids)
 		inputs = torch.cat([global_embed, text_embeds], dim=1)
-		outputs = self.gpt2.forward_embeds(
-			inputs_embeds=inputs,
-			encoder_hidden_states=local_embed
-		)
+		if cross_attn:
+			outputs = self.gpt2.forward_embeds(
+				inputs_embeds=inputs,
+				encoder_hidden_states=local_embed
+			)
+		else:
+			outputs = self.gpt2.forward_embeds(inputs_embeds=inputs)
 		return outputs

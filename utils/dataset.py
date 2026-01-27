@@ -8,11 +8,10 @@ import json
 from pathlib import Path
 from PIL import Image
 import os
-os.environ["TQDM_NCOLS"] = "40"
-from tqdm import tqdm
 from enum import IntFlag
 
 from utils.config import Config
+from utils.tool import tqdm
 
 class DType(IntFlag):
 	TEXT       = 1

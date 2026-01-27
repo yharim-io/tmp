@@ -7,14 +7,15 @@ from clip.model import CLIP
 from clip.simple_tokenizer import SimpleTokenizer
 from torchvision.transforms import Compose
 from torch.utils.data import Dataset, DataLoader
-from tqdm import tqdm
 
 from pycocoevalcap.bleu.bleu import Bleu
 from pycocoevalcap.meteor.meteor import Meteor
 from pycocoevalcap.cider.cider import Cider
 from pycocoevalcap.spice.spice import Spice
+from pycocoevalcap.tokenizer.ptbtokenizer import PTBTokenizer
 
 from utils.config import Config
+from utils.tool import tqdm
 
 class CLIPDataset(Dataset):
     def __init__(self, ids, gts, preds, image_dir, preprocess):
@@ -208,9 +209,22 @@ class MetricEvaluator:
         clean_gts = self._clean_data(ground_truths)
         clean_preds = self._clean_data(predictions)
         
+        gts_for_ptb = {
+            k: [{'caption': c} for c in v] 
+            for k, v in clean_gts.items()
+        }
+        preds_for_ptb = {
+            k: [{'caption': c} for c in v] 
+            for k, v in clean_preds.items()
+        }
+
+        tokenizer = PTBTokenizer()
+        ptb_clean_gts = tokenizer.tokenize(gts_for_ptb)
+        ptb_clean_preds = tokenizer.tokenize(preds_for_ptb)
+
         tqdm_fd = os.dup(2)
         with os.fdopen(tqdm_fd, 'w') as tqdm_stream:
-            trad_scores = self._compute_traditional_metrics(clean_gts, clean_preds, tqdm_stream)
+            trad_scores = self._compute_traditional_metrics(ptb_clean_gts, ptb_clean_preds, tqdm_stream)
             clip_scores = self._compute_clip_metrics(clean_gts, clean_preds, tqdm_stream)
             
         return {**trad_scores, **clip_scores}

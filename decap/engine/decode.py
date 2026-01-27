@@ -6,12 +6,12 @@ import clip
 from clip.model import CLIP
 from clip.simple_tokenizer import SimpleTokenizer
 from torchvision.transforms import Compose
-from tqdm import tqdm
 from pathlib import Path
 from PIL import Image
 
 from decap.layer.decap import DeCap
 from decap.config import Cfg
+from utils.tool import tqdm
 
 @torch.no_grad
 def calc_text_features(

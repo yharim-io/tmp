@@ -22,7 +22,7 @@ class GPT2(nn.Module):
 		inputs_embeds: Tensor,
 		encoder_hidden_states = None,
 		past_key_values = None,
-		use_cache:bool = False
+		use_cache: bool = False
 	):
 		out = self.core(
 			inputs_embeds=inputs_embeds,

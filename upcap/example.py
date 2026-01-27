@@ -22,28 +22,31 @@ with logger('divider', 'loading'):
 	divider = Divider()
 
 with logger('upcap', 'loading'):
-	upcap_model = UpCap()
+	upcap_model = UpCap(
+		enable_concepts_global_buffer=False,
+		enable_concepts_local_buffer=True,
+	)
 	static_dict = torch.load(
-		Cfg.root/'data/upcap/coco/002.pt',
+		Cfg.root/'data/upcap/coco/006.pt',
 		map_location='cpu',
 		weights_only=True
 	)
-	static_dict.pop('concepts_feat', None) # concepts_feat deprecated
+	# static_dict.pop('concepts_feat', None) # concepts_feat deprecated
 	upcap_model.load_state_dict(static_dict)
 	upcap_model = upcap_model.to(Cfg.device)
 	upcap_model.eval()
 
-def sequential_test():
-	for i in range(1, 10):
-		text = image_to_text(
-			clip_model = clip_model,
-			preprocess = preprocess,
-			tokenizer = tokenizer,
-			upcap_model = upcap_model,
-			divider = divider,
-			image_path = Cfg.root/f'data/example/{i}.jpg'
-		)
-		print(text)
+# def sequential_test():
+# 	for i in range(1, 10):
+# 		text = image_to_text(
+# 			clip_model = clip_model,
+# 			preprocess = preprocess,
+# 			tokenizer = tokenizer,
+# 			upcap_model = upcap_model,
+# 			divider = divider,
+# 			image_path = Cfg.root/f'data/example/{i}.jpg'
+# 		)
+# 		print(text)
 
 def parallel_test():
 	texts = image_to_text_batch(
@@ -52,12 +55,17 @@ def parallel_test():
 		tokenizer = tokenizer,
 		upcap_model = upcap_model,
 		divider = divider,
-		image_paths = [Cfg.root/f'data/example/{i}.jpg' for i in range(1, 10)]
+		image_paths = [
+			Cfg.root/f'data/example/{i}.jpg'
+			for i in range(1, 10)
+		],
+		global_attn=False,
+		local_attn=True,
+		cross_attn=True
 	)
 	for t in texts:
 		print(t)
 
 if __name__ == '__main__':
 	# sequential_test()
-	# print()
 	parallel_test()
