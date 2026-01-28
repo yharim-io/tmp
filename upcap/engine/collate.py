@@ -18,15 +18,18 @@ class CollateFn:
             'a picture of {} isolated on a black background.',
             'a cutout of {} isolated on a black background.',
         ]
-        self.num_map: dict[str, int] = {
-            # 'a': 1, 'an': 1, 'one': 1, 'single': 1,
-            'two': 2, 'couple': 2, 'pair': 2, 'both': 2,
-            'three': 3, 'trio': 3, 'triple': 3,
-            'four': 4, 'quartet': 4, 'quadruple': 4,
-            # 'five': 5, 'quintet': 5, 'quintuple': 5
-        }
+        # self.num_map: dict[str, int] = {
+        #     # 'a': 1, 'an': 1, 'one': 1, 'single': 1,
+        #     'two': 2, 'couple': 2, 'pair': 2, 'both': 2,
+        #     'three': 3, 'trio': 3, 'triple': 3,
+        #     'four': 4, 'quartet': 4, 'quadruple': 4,
+        #     # 'five': 5, 'quintet': 5, 'quintuple': 5
+        # }
 
     def _expand_concept(self, concept: str) -> list[str]:
+
+        return [concept]
+    
         count = 1
         remove_idx = -1
 
@@ -78,22 +81,14 @@ class CollateFn:
 
         batch_size = len(batch_data)
         
-        # 预分配 Tensor (Padding 默认为 0)
-        padded_concept_batch: Tensor = torch.zeros(batch_size, Cfg.max_concepts, 77, dtype=torch.long)
         padded_caption_batch: Tensor = torch.zeros(batch_size, Cfg.max_seq_length, dtype=torch.long)
 
-        for i, (sample_concepts, sample_caption) in enumerate(zip(batch_concepts_list, batch_captions_list)):
-            
-            # 处理概念输入 (截断 + 填充)
-            num_concepts = min(len(sample_concepts), Cfg.max_concepts)
-            padded_concept_batch[i, :num_concepts] = sample_concepts[:num_concepts]
-            
-            # 处理标题目标 (截断 + 填充)
+        for i, sample_caption in enumerate(batch_captions_list):
             num_tokens = min(len(sample_caption), Cfg.max_seq_length)
             padded_caption_batch[i, :num_tokens] = sample_caption[:num_tokens]
 
         return {
-            'text_concept_tokens': padded_concept_batch,
+            'text_concept_tokens': batch_concepts_list,
             'token_ids': padded_caption_batch
         }
 

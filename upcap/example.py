@@ -27,7 +27,7 @@ with logger('upcap', 'loading'):
 		enable_concepts_local_buffer=True,
 	)
 	static_dict = torch.load(
-		Cfg.root/'data/upcap/coco/006.pt',
+		Cfg.root/'data/upcap/coco/000.pt',
 		map_location='cpu',
 		weights_only=True
 	)
@@ -60,7 +60,7 @@ def parallel_test():
 			for i in range(1, 10)
 		],
 		global_attn=False,
-		local_attn=True,
+		local_attn=False,
 		cross_attn=True
 	)
 	for t in texts:

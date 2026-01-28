@@ -62,6 +62,11 @@ def train(
 	clip_model, _ = clip.load(Cfg.clip_pretrained_path, device=Cfg.device, jit=False)
 	clip_model.eval()
 	
+	with torch.no_grad():
+		zero_token = torch.zeros((1, 77), dtype=torch.long, device=Cfg.device)
+		pad_feat = clip_model.encode_text(zero_token).float()
+		pad_feat /= pad_feat.norm(dim=-1, keepdim=True)
+
 	optimizer = AdamW(upcap_model.parameters(), lr=lr)
 	
 	sampler = DistributedSampler(dataset)
@@ -95,27 +100,35 @@ def train(
 		
 		for batch in dataloader:
 			
-			text_concept_tokens: Tensor = batch['text_concept_tokens'].to(Cfg.device, non_blocking=True)
+			text_concept_tokens_list: list[Tensor] = batch['text_concept_tokens']
 			token_ids: Tensor = batch['token_ids'].to(Cfg.device, non_blocking=True)
 			
-			B, M, L = text_concept_tokens.shape
-			
-			with torch.no_grad():
-				flat_tokens = text_concept_tokens.view(-1, L)
-				flat_feats = clip_model.encode_text(flat_tokens)
-				flat_feats = flat_feats / flat_feats.norm(dim=-1, keepdim=True)
-				text_concepts = flat_feats.view(B, M, -1).float()
-			
-			# sort by sim with global concept
-			if cross_attn:
-				global_c, local_c = text_concepts[:, :1], text_concepts[:, 1:]
-				sim = (local_c @ global_c.transpose(-2, -1)).squeeze(-1)
-				sim[text_concept_tokens[:, 1:].sum(dim=-1) == 0] = -float('inf')
-				indices = sim.argsort(dim=-1, descending=True)
-				local_c = local_c[torch.arange(B).unsqueeze(-1), indices]
-				text_concepts = torch.cat([global_c, local_c], dim=1)
+			counts = [len(t) for t in text_concept_tokens_list]
+			flat_tokens = torch.cat(text_concept_tokens_list, dim=0).to(Cfg.device, non_blocking=True)
 
-			M = text_concepts.shape[1]
+			with torch.no_grad():
+				flat_feats = clip_model.encode_text(flat_tokens)
+				flat_feats /= flat_feats.norm(dim=-1, keepdim=True)
+				feats_list = flat_feats.split(counts)
+			
+			processed_concepts = []
+			for feats in feats_list:
+				global_c = feats[0:1]
+				local_c = feats[1:]
+
+				if cross_attn and local_c.shape[0] > 0:
+					sim = (local_c @ global_c.transpose(-2, -1)).squeeze(-1)
+					local_c = local_c[sim.argsort(descending=True)]
+					local_c = local_c[:Cfg.max_concepts - 1]
+				
+				combined = torch.cat([global_c, local_c], dim=0)
+				n_pad = Cfg.max_concepts - combined.shape[0]
+				
+				if n_pad > 0:
+					combined = torch.cat([combined, pad_feat.expand(n_pad, -1)], dim=0)
+				processed_concepts.append(combined)
+			
+			text_concepts = torch.stack(processed_concepts).float()
 			
 			logits = upcap_model(
 				text_concepts,

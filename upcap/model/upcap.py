@@ -39,19 +39,23 @@ class UpCap(nn.Module):
 		cross_attn: bool = False,
 	) -> tuple[Tensor, Tensor]:
 		
-		# def noise(x: Tensor) -> Tensor:
-		# 	x = x.norm(dim=-1, keepdim=True)
-		# 	_f = (1 - x.pow(2)).clamp(min=1.14514e-6).sqrt()
-		# 	_g = torch.rand_like(x)
-		# 	_g = _g / _g.norm(dim=-1, keepdim=True)
-		# 	return _f * _g
+		def noise(x: Tensor) -> Tensor:
+			norm = x.norm(dim=-1, keepdim=True)
+			delta = (1 - norm.pow(2)).clamp(min=1e-6).sqrt()
+
+			rand = torch.randn_like(x)
+			proj = (rand * x).sum(dim=-1, keepdim=True) / norm.pow(2).clamp(min=1e-6) * x
+			ortho = rand - proj
+
+			ortho = ortho / ortho.norm(dim=-1, keepdim=True).clamp(min=1e-6)
+			return delta * ortho
 		
 		global_concept = text_concepts[:, :1]
 		local_concepts = text_concepts[:, 1:]
 
 		if global_attn:
 			global_concept = self.global_attention(global_concept, self.concepts_global_feat)
-			# global_prefixes = global_prefixes + noise(global_prefixes)
+			global_concept += noise(global_concept)
 		global_embed = self.mlp(global_concept)
 
 		if not cross_attn:
@@ -59,6 +63,7 @@ class UpCap(nn.Module):
 
 		if local_attn:
 			local_concepts = self.local_attention(local_concepts, self.concepts_local_feat)
+			local_concepts += noise(local_concepts)
 		local_embed = self.mlp(local_concepts)
 		
 		return global_embed, local_embed

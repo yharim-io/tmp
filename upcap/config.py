@@ -16,7 +16,7 @@ class _Schedule:
 	learning_rate: float = 1e-5 * factor
 	warmup_steps: int = 1000 // factor
 	
-	max_concepts: int = 3
+	max_concepts: int = 5
 
 class Config(ConfigBase, _Path, _Model, _Schedule):
 	pass
