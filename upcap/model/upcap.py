@@ -55,7 +55,7 @@ class UpCap(nn.Module):
 
 		if global_attn:
 			global_concept = self.global_attention(global_concept, self.concepts_global_feat)
-			global_concept += noise(global_concept)
+			global_concept = global_concept + noise(global_concept)
 		global_embed = self.mlp(global_concept)
 
 		if not cross_attn:
@@ -63,7 +63,7 @@ class UpCap(nn.Module):
 
 		if local_attn:
 			local_concepts = self.local_attention(local_concepts, self.concepts_local_feat)
-			local_concepts += noise(local_concepts)
+			local_concepts = local_concepts + noise(local_concepts)
 		local_embed = self.mlp(local_concepts)
 		
 		return global_embed, local_embed

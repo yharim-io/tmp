@@ -111,7 +111,7 @@ class GlobalCollateFn:
         padded_caption_batch[:, :valid_len] = global_tokens[:, :valid_len]
 
         return {
-            'text_concept_tokens': padded_concept_batch,
+            'text_concept_tokens': list(padded_concept_batch),
             'token_ids': padded_caption_batch
         }
 

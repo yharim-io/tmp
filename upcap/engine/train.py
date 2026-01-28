@@ -56,7 +56,7 @@ def train(
 		module=upcap_model,
 		device_ids=[Cfg.rank],
 		output_device=Cfg.rank,
-		# find_unused_parameters=True
+		find_unused_parameters=True
 	)
 
 	clip_model, _ = clip.load(Cfg.clip_pretrained_path, device=Cfg.device, jit=False)

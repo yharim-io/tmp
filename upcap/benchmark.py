@@ -18,11 +18,11 @@ from utils.logger import logger
 from utils.tool import tqdm
 
 DATASPACE = Cfg.root/'data/upcap/coco'
-MODEL_WEIGHTS = DATASPACE/'004.pt'
-CACHE_PATH = DATASPACE/'run_model_004.pt'
+MODEL_WEIGHTS = DATASPACE/'005.pt'
+CACHE_PATH = DATASPACE/'run_model_005.pt'
 GLOBAL_ATTN = False
 LOCAL_ATTN = False
-CROSS_ATTN = True
+CROSS_ATTN = False
 
 def run_model(
 	dataset: Dataset,
