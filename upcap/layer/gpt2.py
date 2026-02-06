@@ -5,9 +5,6 @@ import pickle
 from upcap.config import Cfg
 
 class GPT2(nn.Module):
-	"""
-	4 layers transformer with 4 attention heads
-	"""
 	def __init__(self):
 		super().__init__()
 		with open(Cfg.gpt2_config_path, 'rb') as f:
@@ -28,7 +25,7 @@ class GPT2(nn.Module):
 			inputs_embeds=inputs_embeds,
 			encoder_hidden_states=encoder_hidden_states,
 			past_key_values=past_key_values,
-			use_cache=True
+			use_cache=use_cache
 		)
 		if use_cache:
 			return out.logits, out.past_key_values
