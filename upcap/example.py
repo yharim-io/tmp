@@ -61,7 +61,6 @@ def parallel_test():
 		],
 		global_attn=False,
 		local_attn=False,
-		cross_attn=True
 	)
 	for t in texts:
 		print(t)

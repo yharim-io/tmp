@@ -18,78 +18,71 @@ class UpCap(nn.Module):
 		self.local_attention = ConceptAttention(Cfg.clip_dim)
 		self.gpt2 = GPT2()
 		self.mlp = MLP((Cfg.clip_dim, self.gpt2.emb_size))
-		
-		# self.type_embedding = nn.Embedding(2, Cfg.clip_dim)
-		# nn.init.normal_(self.type_embedding.weight, std=0.1) # [0.1, 0.5]
 
 		if enable_concepts_global_buffer:
 			concepts_global_feat_data = torch.load(Cfg.concepts_global_feat_path, weights_only=True).float()
 			self.register_buffer('concepts_global_feat', concepts_global_feat_data, persistent=False)
-			
 
 		if enable_concepts_local_buffer:
 			concepts_local_feat_data = torch.load(Cfg.concepts_local_feat_path, weights_only=True).float()
 			self.register_buffer('concepts_local_feat', concepts_local_feat_data, persistent=False)
 
-	def concepts_embed(
+	def embed_tokens(self, token_ids: Tensor) -> Tensor:
+		return self.gpt2.embed(token_ids)
+
+	def project_features(
 		self,
-		text_concepts: Tensor,
+		global_feat: Tensor,
+		local_feat: Tensor,
 		global_attn: bool = False,
-		local_attn: bool = False,
-		cross_attn: bool = False,
+		local_attn: bool = False
 	) -> tuple[Tensor, Tensor]:
 		
 		def noise(x: Tensor) -> Tensor:
 			norm = x.norm(dim=-1, keepdim=True)
 			delta = (1 - norm.pow(2)).clamp(min=1e-6).sqrt()
-
 			rand = torch.randn_like(x)
 			proj = (rand * x).sum(dim=-1, keepdim=True) / norm.pow(2).clamp(min=1e-6) * x
 			ortho = rand - proj
-
 			ortho = ortho / ortho.norm(dim=-1, keepdim=True).clamp(min=1e-6)
 			return delta * ortho
-		
-		global_concept = text_concepts[:, :1]
-		local_concepts = text_concepts[:, 1:]
 
 		if global_attn:
-			global_concept = self.global_attention(global_concept, self.concepts_global_feat)
-			global_concept = global_concept + noise(global_concept)
-		global_embed = self.mlp(global_concept)
+			global_feat = self.global_attention(global_feat, self.concepts_global_feat)
+			global_feat = global_feat + noise(global_feat)
+		global_emb = self.mlp(global_feat)
 
-		if not cross_attn:
-			return global_embed, torch.empty(0)
-
-		if local_attn:
-			local_concepts = self.local_attention(local_concepts, self.concepts_local_feat)
-			local_concepts = local_concepts + noise(local_concepts)
-		local_embed = self.mlp(local_concepts)
+		if local_feat.numel() > 0:
+			if local_attn:
+				local_feat = self.local_attention(local_feat, self.concepts_local_feat)
+				local_feat = local_feat + noise(local_feat)
+			local_emb = self.mlp(local_feat)
+		else:
+			local_emb = torch.empty(0, device=global_feat.device)
 		
-		return global_embed, local_embed
+		return global_emb, local_emb
+
+	def assemble_structure(
+		self,
+		global_emb: Tensor,
+		local_emb: Tensor,
+		text_emb: Tensor,
+	) -> tuple[Tensor, Tensor | None]:
+		# inputs_embeds = torch.cat([global_emb, text_emb], dim=1)
+		# encoder_hidden_states = local_emb
+		inputs_embeds = text_emb
+		encoder_hidden_states = global_emb
+		return inputs_embeds, encoder_hidden_states
 
 	def forward(
 		self,
-		text_concepts: Tensor,
-		token_ids: Tensor,
-		global_attn: bool = False,
-		local_attn: bool = False,
-		cross_attn: bool = False
-	) -> Tensor:
-
-		global_embed, local_embed = self.concepts_embed(
-			text_concepts,
-			global_attn=global_attn,
-			local_attn=local_attn,
-			cross_attn=cross_attn
+		inputs_embeds: Tensor,
+		encoder_hidden_states: Tensor | None = None,
+		past_key_values: tuple | None = None
+	) -> tuple[Tensor, tuple]:
+		return self.gpt2.forward_embeds(
+			inputs_embeds=inputs_embeds,
+			encoder_hidden_states=encoder_hidden_states,
+			past_key_values=past_key_values,
+			use_cache=True
 		)
-		text_embeds = self.gpt2.embed(token_ids)
-		inputs = torch.cat([global_embed, text_embeds], dim=1)
-		if cross_attn:
-			outputs = self.gpt2.forward_embeds(
-				inputs_embeds=inputs,
-				encoder_hidden_states=local_embed
-			)
-		else:
-			outputs = self.gpt2.forward_embeds(inputs_embeds=inputs)
-		return outputs

@@ -22,7 +22,6 @@ MODEL_WEIGHTS = DATASPACE/'005.pt'
 CACHE_PATH = DATASPACE/'run_model_005.pt'
 GLOBAL_ATTN = False
 LOCAL_ATTN = False
-CROSS_ATTN = False
 
 def run_model(
 	dataset: Dataset,
@@ -86,7 +85,6 @@ def run_model(
 			image_paths=batch_paths,
 			global_attn=GLOBAL_ATTN,
 			local_attn=LOCAL_ATTN,
-			cross_attn=CROSS_ATTN
 		)
 
 		for img_id, text in zip(batch_ids, batch_texts):

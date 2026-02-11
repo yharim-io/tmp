@@ -19,56 +19,30 @@ def decode(
 	text_concepts: Tensor,
 	global_attn: bool = False,
 	local_attn: bool = False,
-	cross_attn: bool = False,
 ) -> str:
 	
 	upcap_model.eval()
 
-	sot_token = torch.tensor([[Cfg.sot_token_id]], device=text_concepts.device, dtype=torch.long)
-	sot_emb = upcap_model.gpt2.embed(sot_token)
-
-	# prefix_embeds = upcap_model.concepts_embed(text_concepts)
-	# current_embeds = torch.cat([prefix_embeds, sot_emb], dim=1)
+	global_feat = text_concepts[:, :1]
+	local_feat = text_concepts[:, 1:]
 	
-	global_embed, local_embed = upcap_model.concepts_embed(
-		text_concepts,
-		global_attn=global_attn,
-		local_attn=local_attn,
-		cross_attn=cross_attn
-	)
-	current_embeds = torch.cat([global_embed, sot_emb], dim=1)
+	global_emb, local_emb = upcap_model.project_features(global_feat, local_feat, global_attn, local_attn)
+	
+	sot_token = torch.tensor([[Cfg.sot_token_id]], device=text_concepts.device, dtype=torch.long)
+	sot_emb = upcap_model.embed_tokens(sot_token)
 
+	inputs_embeds, cross_states = upcap_model.assemble_structure(global_emb, local_emb, sot_emb)
+	
 	entry_length = Cfg.max_seq_length
 	tokens = None
 	past_key_values = None
 
 	for _ in range(entry_length):
 		
-		# logits, past_key_values = upcap_model.gpt2.forward_embeds(
-		# 	inputs_embeds=current_embeds,
-		# 	past_key_values=past_key_values,
-		# 	use_cache=True
-		# )
+		logits, past_key_values = upcap_model.forward(inputs_embeds, cross_states, past_key_values)
 		
-		if cross_attn:
-			logits, past_key_values = upcap_model.gpt2.forward_embeds(
-				inputs_embeds=current_embeds,
-				encoder_hidden_states=local_embed,
-				past_key_values=past_key_values,
-				use_cache=True
-			)
-		else:
-			logits, past_key_values = upcap_model.gpt2.forward_embeds(
-				inputs_embeds=current_embeds,
-				past_key_values=past_key_values,
-				use_cache=True
-			)
-
 		logits: Tensor = logits[:, -1, :]
-
 		next_token_id = torch.argmax(logits, -1).unsqueeze(0)
-		
-		next_token_embed = upcap_model.gpt2.embed(next_token_id)
 		
 		if tokens is None:
 			tokens = next_token_id
@@ -78,7 +52,7 @@ def decode(
 		if next_token_id.item() == Cfg.eos_token_id:
 			break
 		
-		current_embeds = next_token_embed
+		inputs_embeds = upcap_model.embed_tokens(next_token_id)
 	
 	try:
 		output_list = list(tokens.squeeze().cpu().numpy())
@@ -99,7 +73,6 @@ def image_to_text(
 	image_path: Path,
 	global_attn: bool = False,
 	local_attn: bool = False,
-	cross_attn: bool = False,
 ) -> str:
 	upcap_model.eval()
 	
@@ -146,7 +119,6 @@ def image_to_text(
 		text_concepts,
 		global_attn=global_attn,
 		local_attn=local_attn,
-		cross_attn=cross_attn
 	)
 	
 	return text

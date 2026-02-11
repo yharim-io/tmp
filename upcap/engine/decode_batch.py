@@ -18,24 +18,20 @@ def decode_batch(
 	text_concepts: Tensor,
 	global_attn: bool = False,
 	local_attn: bool = False,
-	cross_attn: bool = False,
 ) -> list[str]:
 	
 	upcap_model.eval()
 	batch_size = text_concepts.shape[0]
+	
+	global_feat = text_concepts[:, :1]
+	local_feat = text_concepts[:, 1:]
 
+	global_emb, local_emb = upcap_model.project_features(global_feat, local_feat, global_attn, local_attn)
+	
 	sot_token = torch.full((batch_size, 1), Cfg.sot_token_id, device=text_concepts.device, dtype=torch.long)
-	sot_emb = upcap_model.gpt2.embed(sot_token)
+	sot_emb = upcap_model.embed_tokens(sot_token)
 
-	# prefix_embeds = upcap_model.concepts_embed(text_concepts)	
-	# current_embeds = torch.cat([prefix_embeds, sot_emb], dim=1)
-	global_embed, local_embed = upcap_model.concepts_embed(
-		text_concepts,
-		global_attn=global_attn,
-		local_attn=local_attn,
-		cross_attn=cross_attn
-	)
-	current_embeds = torch.cat([global_embed, sot_emb], dim=1)
+	inputs_embeds, cross_states = upcap_model.assemble_structure(global_emb, local_emb, sot_emb)
 	
 	entry_length = Cfg.max_seq_length
 	tokens = torch.zeros((batch_size, 0), dtype=torch.long, device=text_concepts.device)
@@ -43,26 +39,14 @@ def decode_batch(
 
 	for _ in range(entry_length):
 		
-		if cross_attn:
-			logits, past_key_values = upcap_model.gpt2.forward_embeds(
-				inputs_embeds=current_embeds,
-				encoder_hidden_states=local_embed,
-				past_key_values=past_key_values,
-				use_cache=True
-			)
-		else:
-			logits, past_key_values = upcap_model.gpt2.forward_embeds(
-				inputs_embeds=current_embeds,
-				past_key_values=past_key_values,
-				use_cache=True
-			)
+		logits, past_key_values = upcap_model.forward(inputs_embeds, cross_states, past_key_values)
 
 		logits = logits[:, -1, :]
 
 		next_token_id = torch.argmax(logits, dim=-1).unsqueeze(1)
 		tokens = torch.cat((tokens, next_token_id), dim=1)
 		
-		current_embeds = upcap_model.gpt2.embed(next_token_id)
+		inputs_embeds = upcap_model.embed_tokens(next_token_id)
 
 	output_texts = []
 	token_lists = tokens.cpu().numpy().tolist()
@@ -88,7 +72,6 @@ def image_to_text_batch(
 	image_paths: list[Path],
 	global_attn: bool = False,
 	local_attn: bool = False,
-	cross_attn: bool = False,
 ) -> list[str]:
 	
 	upcap_model.eval()

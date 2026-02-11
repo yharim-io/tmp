@@ -22,5 +22,4 @@ if __name__ == '__main__':
 		epochs = 40,
 		# start_epoch = 10,
 		# init_weights = Cfg.root/'data/upcap/coco/009.pt',
-		cross_attn=False,
 	)

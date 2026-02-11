@@ -23,7 +23,6 @@ def train(
 	epochs: int = 10,
 	start_epoch: int = 0,
 	init_weights: Path | None = None,
-	cross_attn: bool = False,
 	lr: float | None = None,
 	warmup_steps: int | None = None,
 ) -> UpCap:
@@ -111,32 +110,38 @@ def train(
 				flat_feats /= flat_feats.norm(dim=-1, keepdim=True)
 				feats_list = flat_feats.split(counts)
 			
-			processed_concepts = []
+			batch_global_feat = []
+			batch_local_feat = []
+			
 			for feats in feats_list:
 				global_c = feats[0:1]
 				local_c = feats[1:]
 
-				if cross_attn and local_c.shape[0] > 0:
+				if local_c.shape[0] > 0:
 					sim = (local_c @ global_c.transpose(-2, -1)).squeeze(-1)
 					local_c = local_c[sim.argsort(descending=True)]
 					local_c = local_c[:Cfg.max_concepts - 1]
 				
-				combined = torch.cat([global_c, local_c], dim=0)
-				n_pad = Cfg.max_concepts - combined.shape[0]
-				
+				n_pad = Cfg.max_concepts - 1 - local_c.shape[0]
 				if n_pad > 0:
-					combined = torch.cat([combined, pad_feat.expand(n_pad, -1)], dim=0)
-				processed_concepts.append(combined)
+					local_c = torch.cat([local_c, pad_feat.expand(n_pad, -1)], dim=0)
+				
+				batch_global_feat.append(global_c)
+				batch_local_feat.append(local_c)
 			
-			text_concepts = torch.stack(processed_concepts).float()
+			global_feat = torch.stack(batch_global_feat).float()
+			local_feat = torch.stack(batch_local_feat).float()
 			
-			logits = upcap_model(
-				text_concepts,
-				token_ids,
-				global_attn=True,
-				local_attn=True,
-				cross_attn=cross_attn
+			global_emb, local_emb = upcap_model.module.project_features(
+				global_feat, local_feat, global_attn=True, local_attn=True
 			)
+			text_emb = upcap_model.module.embed_tokens(token_ids)
+			
+			inputs_embeds, cross_states = upcap_model.module.assemble_structure(
+				global_emb, local_emb, text_emb
+			)
+			
+			logits, _ = upcap_model(inputs_embeds, cross_states)
 			logits = logits[:, :-1]
 			
 			token_ids = token_ids.flatten()
