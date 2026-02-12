@@ -10,6 +10,7 @@ class GPT2(nn.Module):
 		with open(Cfg.gpt2_config_path, 'rb') as f:
 			gpt2config: GPT2Config = pickle.load(f)
 		gpt2config.add_cross_attention = True
+		gpt2config._attn_implementation = 'eager'
 		self.core = GPT2LMHeadModel(gpt2config)
 		self.emb_size = gpt2config.n_embd
 		self.ember = self.core.get_input_embeddings()

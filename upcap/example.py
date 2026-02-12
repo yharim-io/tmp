@@ -27,10 +27,15 @@ with logger('upcap', 'loading'):
 		enable_concepts_local_buffer=True,
 	)
 	static_dict = torch.load(
-		Cfg.root/'data/upcap/coco/000.pt',
+		Cfg.root/'data/upcap/coco/001.pt',
 		map_location='cpu',
 		weights_only=True
 	)
+	if any(k.startswith('_orig_mod.') for k in static_dict.keys()):
+		static_dict = {
+			(k[len('_orig_mod.'):] if k.startswith('_orig_mod.') else k): v
+			for k, v in static_dict.items()
+		}
 	# static_dict.pop('concepts_feat', None) # concepts_feat deprecated
 	upcap_model.load_state_dict(static_dict)
 	upcap_model = upcap_model.to(Cfg.device)

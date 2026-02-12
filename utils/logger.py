@@ -2,15 +2,15 @@ import time
 from contextlib import contextmanager
 
 @contextmanager
-def logger(module: str, log: str, cond: bool = True):
-	if cond: print(f'[{module}] {log}...')
+def logger(module: str, log: str, logif: bool = True):
+	if logif: print(f'[{module}] {log}...')
 	try:
 		yield
 	except:
-		if cond: print(f'[{module}] {log} failed.')
+		if logif: print(f'[{module}] {log} failed.')
 		raise
 	finally:
-		if cond:
+		if logif:
 			print(f'[{module}] {log} done.')
 			print()
 

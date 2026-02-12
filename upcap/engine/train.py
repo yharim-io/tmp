@@ -5,6 +5,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.utils.data.distributed import DistributedSampler
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.optim import AdamW
+from torch.amp import autocast, GradScaler
 from transformers import get_linear_schedule_with_warmup
 import os
 from pathlib import Path
@@ -30,6 +31,9 @@ def train(
 	batch_size = Cfg.batch_size
 	if lr is None: lr = Cfg.learning_rate
 	if warmup_steps is None: warmup_steps = Cfg.warmup_steps
+
+	torch.backends.cuda.matmul.allow_tf32 = True
+	torch.backends.cudnn.allow_tf32 = True
 	
 	if Cfg.is_master:
 		log_dir = output_dir / 'log/'
@@ -51,11 +55,13 @@ def train(
 		)
 	
 	upcap_model.to(Cfg.device)
+	upcap_model = torch.compile(upcap_model)
 	upcap_model = DDP(
 		module=upcap_model,
 		device_ids=[Cfg.rank],
 		output_device=Cfg.rank,
-		find_unused_parameters=True
+		find_unused_parameters=True,
+		broadcast_buffers=False
 	)
 
 	clip_model, _ = clip.load(Cfg.clip_pretrained_path, device=Cfg.device, jit=False)
@@ -66,7 +72,12 @@ def train(
 		pad_feat = clip_model.encode_text(zero_token).float()
 		pad_feat /= pad_feat.norm(dim=-1, keepdim=True)
 
-	optimizer = AdamW(upcap_model.parameters(), lr=lr)
+	optimizer = AdamW(
+		upcap_model.parameters(),
+		lr=lr,
+		fused=(Cfg.device.type == 'cuda')
+	)
+	scaler = GradScaler(enabled=Cfg.device.type == 'cuda')
 	
 	sampler = DistributedSampler(dataset)
 	
@@ -77,6 +88,7 @@ def train(
 		drop_last=True,
 		num_workers=8,
 		pin_memory=True,
+		persistent_workers=True,
 		collate_fn=collate_fn
 	)
 	
@@ -105,55 +117,57 @@ def train(
 			counts = [len(t) for t in text_concept_tokens_list]
 			flat_tokens = torch.cat(text_concept_tokens_list, dim=0).to(Cfg.device, non_blocking=True)
 
-			with torch.no_grad():
-				flat_feats = clip_model.encode_text(flat_tokens)
-				flat_feats /= flat_feats.norm(dim=-1, keepdim=True)
-				feats_list = flat_feats.split(counts)
-			
-			batch_global_feat = []
-			batch_local_feat = []
-			
-			for feats in feats_list:
-				global_c = feats[0:1]
-				local_c = feats[1:]
+			optimizer.zero_grad(set_to_none=True)
+			with autocast(device_type=Cfg.device.type, dtype=torch.float16 if Cfg.device.type == 'cuda' else torch.bfloat16):
+				with torch.no_grad():
+					flat_feats = clip_model.encode_text(flat_tokens)
+					flat_feats /= flat_feats.norm(dim=-1, keepdim=True)
+					feats_list = flat_feats.split(counts)
+				
+				batch_global_feat = []
+				batch_local_feat = []
+				
+				for feats in feats_list:
+					global_c = feats[0:1]
+					local_c = feats[1:]
 
-				if local_c.shape[0] > 0:
-					sim = (local_c @ global_c.transpose(-2, -1)).squeeze(-1)
-					local_c = local_c[sim.argsort(descending=True)]
-					local_c = local_c[:Cfg.max_concepts - 1]
+					if local_c.shape[0] > 0:
+						sim = (local_c @ global_c.transpose(-2, -1)).squeeze(-1)
+						local_c = local_c[sim.argsort(descending=True)]
+						local_c = local_c[:Cfg.max_concepts - 1]
+					
+					n_pad = Cfg.max_concepts - 1 - local_c.shape[0]
+					if n_pad > 0:
+						local_c = torch.cat([local_c, pad_feat.expand(n_pad, -1)], dim=0)
+					
+					batch_global_feat.append(global_c)
+					batch_local_feat.append(local_c)
 				
-				n_pad = Cfg.max_concepts - 1 - local_c.shape[0]
-				if n_pad > 0:
-					local_c = torch.cat([local_c, pad_feat.expand(n_pad, -1)], dim=0)
+				global_feat = torch.stack(batch_global_feat).float()
+				local_feat = torch.stack(batch_local_feat).float()
 				
-				batch_global_feat.append(global_c)
-				batch_local_feat.append(local_c)
-			
-			global_feat = torch.stack(batch_global_feat).float()
-			local_feat = torch.stack(batch_local_feat).float()
-			
-			global_emb, local_emb = upcap_model.module.project_features(
-				global_feat, local_feat, global_attn=True, local_attn=True
-			)
-			text_emb = upcap_model.module.embed_tokens(token_ids)
-			
-			inputs_embeds, cross_states = upcap_model.module.assemble_structure(
-				global_emb, local_emb, text_emb
-			)
-			
-			logits, _ = upcap_model(inputs_embeds, cross_states)
-			logits = logits[:, :-1]
-			
-			token_ids = token_ids.flatten()
-			logits = logits.reshape(-1, logits.shape[-1])
-			
-			loss_token = loss_ce(logits, token_ids)
-			ac_token = ((logits.argmax(1) == token_ids) * (token_ids > 0)).sum() / (token_ids > 0).sum()
-			
-			optimizer.zero_grad()
-			loss_all = loss_token
-			loss_all.backward()
-			optimizer.step()
+				global_emb, local_emb = upcap_model.module.project_features(
+					global_feat, local_feat, global_attn=True, local_attn=True
+				)
+				text_emb = upcap_model.module.embed_tokens(token_ids)
+				
+				inputs_embeds, cross_states = upcap_model.module.assemble_structure(
+					global_emb, local_emb, text_emb
+				)
+				
+				logits, _ = upcap_model(inputs_embeds, cross_states)
+				prefix_len = upcap_model.module.prefix_len
+				logits = logits[:, max(0, prefix_len - 1) : -1]
+				token_ids = token_ids[:, max(0, 1 - prefix_len) :].flatten()
+				logits = logits.reshape(-1, logits.shape[-1])
+				
+				loss_token = loss_ce(logits, token_ids)
+				ac_token = ((logits.argmax(1) == token_ids) * (token_ids > 0)).sum() / (token_ids > 0).sum()
+				loss_all = loss_token
+
+			scaler.scale(loss_all).backward()
+			scaler.step(optimizer)
+			scaler.update()
 			scheduler.step()
 			
 			last_lr = 0

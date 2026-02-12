@@ -3,14 +3,17 @@ import torch.distributed as dist
 import clip
 from pathlib import Path
 import os
+import numpy as np
+from PIL import Image
 from clip.model import CLIP
 from clip.simple_tokenizer import SimpleTokenizer
 from torchvision.transforms import Compose
+from torch.utils.data import Dataset as TorchDataset, DataLoader
 
 from upcap.config import Cfg
 from upcap.model.upcap import UpCap
 from upcap.model.divider import Divider
-from upcap.engine.decode_batch import image_to_text_batch
+from upcap.engine.decode_batch import image_tensor_to_text_batch
 from utils.dataset import Dataset, CocoDataset, DType
 from utils.metric import MetricEvaluator
 from utils.dist import dist_startup
@@ -18,10 +21,32 @@ from utils.logger import logger
 from utils.tool import tqdm
 
 DATASPACE = Cfg.root/'data/upcap/coco'
-MODEL_WEIGHTS = DATASPACE/'005.pt'
-CACHE_PATH = DATASPACE/'run_model_005.pt'
+MODEL_WEIGHTS = DATASPACE/'009.pt'
+CACHE_PATH = DATASPACE/'run_model_009.pt'
 GLOBAL_ATTN = False
 LOCAL_ATTN = False
+
+class _UniqueImageDataset(TorchDataset):
+	def __init__(self, unique_images: list[tuple[str, Path]], preprocess: Compose):
+		self.unique_images = unique_images
+		self.preprocess = preprocess
+
+	def __len__(self) -> int:
+		return len(self.unique_images)
+
+	def __getitem__(self, index: int):
+		image_id, image_path = self.unique_images[index]
+		image = Image.open(image_path).convert('RGB')
+		image_rgb = np.array(image)
+		image_tensor = self.preprocess(image)
+		return image_id, str(image_path), image_tensor, image_rgb
+
+def _collate_unique_images(batch):
+	batch_ids = [item[0] for item in batch]
+	batch_paths = [Path(item[1]) for item in batch]
+	image_tensor = torch.stack([item[2] for item in batch], dim=0)
+	image_rgbs = [item[3] for item in batch]
+	return batch_ids, batch_paths, image_tensor, image_rgbs
 
 def run_model(
 	dataset: Dataset,
@@ -32,7 +57,7 @@ def run_model(
 	divider: Divider,
 	cache_path: Path | None = None,
 	use_cache: bool = True,
-	batch_size: int = 8
+	batch_size: int = 64
 ) -> tuple[dict, dict]:
 	
 	if use_cache and cache_path is not None and cache_path.exists():
@@ -67,28 +92,43 @@ def run_model(
 	world_size = dist.get_world_size()
 	local_images = unique_images[Cfg.rank::world_size]
 
-	iterator = range(0, len(local_images), batch_size)
-	if Cfg.is_master: iterator = tqdm(iterator, desc="Running Inference")
+	num_workers = min(8, max(1, (os.cpu_count() or 1) // max(1, world_size)))
+	pin_memory = Cfg.device.type == 'cuda'
 
-	for i in iterator:
-		batch_data = local_images[i : i + batch_size]
+	loader_kwargs = {
+		'batch_size': batch_size,
+		'shuffle': False,
+		'num_workers': num_workers,
+		'pin_memory': pin_memory,
+		'collate_fn': _collate_unique_images,
+	}
+	if num_workers > 0:
+		loader_kwargs['prefetch_factor'] = 2
+		loader_kwargs['persistent_workers'] = True
 
-		batch_ids = [item[0] for item in batch_data]
-		batch_paths = [item[1] for item in batch_data]
+	local_dataset = _UniqueImageDataset(local_images, preprocess)
+	local_loader = DataLoader(local_dataset, **loader_kwargs)
 
-		batch_texts = image_to_text_batch(
-			clip_model=clip_model,
-			preprocess=preprocess,
-			tokenizer=tokenizer,
-			upcap_model=upcap_model,
-			divider=divider,
-			image_paths=batch_paths,
-			global_attn=GLOBAL_ATTN,
-			local_attn=LOCAL_ATTN,
-		)
+	iterator = local_loader
+	if Cfg.is_master:
+		iterator = tqdm(local_loader, desc='Running Inference', total=len(local_loader))
 
-		for img_id, text in zip(batch_ids, batch_texts):
-			model_predictions[img_id] = [text]
+	with torch.inference_mode():
+		for batch_ids, batch_paths, image_tensor, image_rgbs in iterator:
+			batch_texts = image_tensor_to_text_batch(
+				clip_model=clip_model,
+				tokenizer=tokenizer,
+				upcap_model=upcap_model,
+				divider=divider,
+				image_tensor=image_tensor,
+				image_paths=batch_paths,
+				image_rgbs=image_rgbs,
+				global_attn=GLOBAL_ATTN,
+				local_attn=LOCAL_ATTN,
+			)
+
+			for img_id, text in zip(batch_ids, batch_texts):
+				model_predictions[img_id] = [text]
 
 	# if cache_path is not None:
 	# 	torch.save(
@@ -197,14 +237,18 @@ def main():
 			enable_concepts_global_buffer=GLOBAL_ATTN,
 			enable_concepts_local_buffer=LOCAL_ATTN,
 		)
-		upcap_model = upcap_model.to(Cfg.device)
-		upcap_model.load_state_dict(
-			torch.load(
-				MODEL_WEIGHTS,
-				map_location=Cfg.device,
-				weights_only=True
-			)
+		static_dict = torch.load(
+			MODEL_WEIGHTS,
+			map_location=Cfg.device,
+			weights_only=True
 		)
+		if any(k.startswith('_orig_mod.') for k in static_dict.keys()):
+			static_dict = {
+				(k[len('_orig_mod.'):] if k.startswith('_orig_mod.') else k): v
+				for k, v in static_dict.items()
+			}
+		upcap_model.load_state_dict(static_dict)
+		upcap_model = upcap_model.to(Cfg.device)
 		upcap_model.eval()
 	
 	with logger('upcap', 'running', Cfg.is_master):

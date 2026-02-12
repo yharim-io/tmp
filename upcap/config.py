@@ -11,7 +11,7 @@ class _Model:
 	clip_std: list[float] = [0.26862954, 0.26130258, 0.27577711]
 
 class _Schedule:
-	factor: int = 16
+	factor: int = 8
 	batch_size: int = 64 * factor
 	learning_rate: float = 1e-5 * factor
 	warmup_steps: int = 1000 // factor

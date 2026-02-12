@@ -12,8 +12,8 @@ if __name__ == '__main__':
 		dtype = DType.TEXT
 	)
 	
-	# collate_fn = CollateFn()
-	collate_fn = GlobalCollateFn()
+	collate_fn = CollateFn()
+	# collate_fn = GlobalCollateFn()
 
 	train(
 		dataset,

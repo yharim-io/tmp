@@ -150,7 +150,7 @@ class MetricEvaluator:
         clip_s_ref_scores = []
         ids = list(gts.keys())
         device = Config.device
-        batch_size = 64
+        batch_size = 256
 
         dataset = CLIPDataset(ids, gts, preds, Config.coco_val_image, self.preprocess)
         dataloader = DataLoader(

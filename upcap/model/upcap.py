@@ -1,5 +1,6 @@
 import torch
 from torch import nn, Tensor
+from transformers.models.gpt2.modeling_gpt2 import GPT2Attention
 
 from upcap.config import Cfg
 from upcap.layer.mlp import MLP
@@ -17,6 +18,7 @@ class UpCap(nn.Module):
 		self.global_attention = ConceptAttention(Cfg.clip_dim)
 		self.local_attention = ConceptAttention(Cfg.clip_dim)
 		self.gpt2 = GPT2()
+
 		self.mlp = MLP((Cfg.clip_dim, self.gpt2.emb_size))
 
 		if enable_concepts_global_buffer:
@@ -26,6 +28,8 @@ class UpCap(nn.Module):
 		if enable_concepts_local_buffer:
 			concepts_local_feat_data = torch.load(Cfg.concepts_local_feat_path, weights_only=True).float()
 			self.register_buffer('concepts_local_feat', concepts_local_feat_data, persistent=False)
+		
+		self.prefix_len: int = 0
 
 	def embed_tokens(self, token_ids: Tensor) -> Tensor:
 		return self.gpt2.embed(token_ids)
@@ -37,7 +41,7 @@ class UpCap(nn.Module):
 		global_attn: bool = False,
 		local_attn: bool = False
 	) -> tuple[Tensor, Tensor]:
-		
+
 		def noise(x: Tensor) -> Tensor:
 			norm = x.norm(dim=-1, keepdim=True)
 			delta = (1 - norm.pow(2)).clamp(min=1e-6).sqrt()
@@ -49,13 +53,13 @@ class UpCap(nn.Module):
 
 		if global_attn:
 			global_feat = self.global_attention(global_feat, self.concepts_global_feat)
-			global_feat = global_feat + noise(global_feat)
+			# global_feat = global_feat + noise(global_feat)
 		global_emb = self.mlp(global_feat)
 
 		if local_feat.numel() > 0:
 			if local_attn:
 				local_feat = self.local_attention(local_feat, self.concepts_local_feat)
-				local_feat = local_feat + noise(local_feat)
+				# local_feat = local_feat + noise(local_feat)
 			local_emb = self.mlp(local_feat)
 		else:
 			local_emb = torch.empty(0, device=global_feat.device)
@@ -68,10 +72,12 @@ class UpCap(nn.Module):
 		local_emb: Tensor,
 		text_emb: Tensor,
 	) -> tuple[Tensor, Tensor | None]:
-		# inputs_embeds = torch.cat([global_emb, text_emb], dim=1)
-		# encoder_hidden_states = local_emb
+		
 		inputs_embeds = text_emb
-		encoder_hidden_states = global_emb
+		encoder_hidden_states = torch.cat([global_emb, local_emb], dim=1)
+
+		self.prefix_len = inputs_embeds.shape[1] - text_emb.shape[1]
+
 		return inputs_embeds, encoder_hidden_states
 
 	def forward(
