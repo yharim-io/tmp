@@ -19,7 +19,7 @@ if __name__ == '__main__':
 		dataset,
 		collate_fn = collate_fn,
 		output_dir = Cfg.root/'data/upcap/coco',
-		epochs = 40,
+		epochs = 50,
 		# start_epoch = 10,
 		# init_weights = Cfg.root/'data/upcap/coco/009.pt',
 	)

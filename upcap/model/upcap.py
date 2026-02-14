@@ -1,8 +1,8 @@
 import torch
 from torch import nn, Tensor
-from transformers.models.gpt2.modeling_gpt2 import GPT2Attention
 
 from upcap.config import Cfg
+from upcap.model.noise import VelocityField
 from upcap.layer.mlp import MLP
 from upcap.layer.gpt2 import GPT2
 from upcap.layer.attention import ConceptAttention
@@ -28,8 +28,22 @@ class UpCap(nn.Module):
 		if enable_concepts_local_buffer:
 			concepts_local_feat_data = torch.load(Cfg.concepts_local_feat_path, weights_only=True).float()
 			self.register_buffer('concepts_local_feat', concepts_local_feat_data, persistent=False)
+
+		if self.training:
+			self.noise = VelocityField.load_from_pretrained(
+				checkpoint_path=Cfg.noise_rf_path,
+				map_location='cpu'
+			)
+			self.noise.requires_grad_(False)
+			self.noise.eval()
 		
 		self.prefix_len: int = 0
+
+	def _transport_features(self, feat: Tensor) -> Tensor:
+		shape = feat.shape
+		flat_feat = feat.reshape(-1, shape[-1])
+		flat_feat = self.noise.transport(flat_feat)
+		return flat_feat.view(*shape)
 
 	def embed_tokens(self, token_ids: Tensor) -> Tensor:
 		return self.gpt2.embed(token_ids)
@@ -42,27 +56,17 @@ class UpCap(nn.Module):
 		local_attn: bool = False
 	) -> tuple[Tensor, Tensor]:
 
-		def noise(x: Tensor) -> Tensor:
-			norm = x.norm(dim=-1, keepdim=True)
-			delta = (1 - norm.pow(2)).clamp(min=1e-6).sqrt()
-			rand = torch.randn_like(x)
-			proj = (rand * x).sum(dim=-1, keepdim=True) / norm.pow(2).clamp(min=1e-6) * x
-			ortho = rand - proj
-			ortho = ortho / ortho.norm(dim=-1, keepdim=True).clamp(min=1e-6)
-			return delta * ortho
-
+		# if self.training:
+		# 	global_feat = self._transport_features(global_feat)
 		if global_attn:
 			global_feat = self.global_attention(global_feat, self.concepts_global_feat)
-			# global_feat = global_feat + noise(global_feat)
 		global_emb = self.mlp(global_feat)
 
-		if local_feat.numel() > 0:
-			if local_attn:
-				local_feat = self.local_attention(local_feat, self.concepts_local_feat)
-				# local_feat = local_feat + noise(local_feat)
-			local_emb = self.mlp(local_feat)
-		else:
-			local_emb = torch.empty(0, device=global_feat.device)
+		# if self.training:
+		# 	local_feat = self._transport_features(local_feat)
+		if local_attn:
+			local_feat = self.local_attention(local_feat, self.concepts_local_feat)
+		local_emb = self.mlp(local_feat)
 		
 		return global_emb, local_emb
 
@@ -73,8 +77,8 @@ class UpCap(nn.Module):
 		text_emb: Tensor,
 	) -> tuple[Tensor, Tensor | None]:
 		
-		inputs_embeds = text_emb
-		encoder_hidden_states = torch.cat([global_emb, local_emb], dim=1)
+		inputs_embeds = torch.cat([global_emb, text_emb], dim=1)
+		encoder_hidden_states = torch.cat([local_emb], dim=1)
 
 		self.prefix_len = inputs_embeds.shape[1] - text_emb.shape[1]
 

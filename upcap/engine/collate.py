@@ -1,6 +1,7 @@
 import torch
 from torch import Tensor
 import clip
+import random
 
 from upcap.model.parser import TextParser
 from upcap.config import Cfg
@@ -8,27 +9,31 @@ from upcap.config import Cfg
 class CollateFn:
     def __init__(self):
         self.parser = TextParser()
+        self._concept_cache: dict[str, list[str]] = {}
+        self._expand_cache: dict[str, list[str]] = {}
         self.templates: list[str] = [
-            # 'a photo of {}.',
-            # 'an image of {}.',
-            # 'a picture of {}.',
-            # 'a cutout of {}.',
+            'a photo of {}.',
+            'an image of {}.',
+            'a picture of {}.',
+            'a cutout of {}.',
             'a photo of {} isolated on a black background.',
             'an image of {} isolated on a black background.',
             'a picture of {} isolated on a black background.',
             'a cutout of {} isolated on a black background.',
         ]
-        # self.num_map: dict[str, int] = {
-        #     # 'a': 1, 'an': 1, 'one': 1, 'single': 1,
-        #     'two': 2, 'couple': 2, 'pair': 2, 'both': 2,
-        #     'three': 3, 'trio': 3, 'triple': 3,
-        #     'four': 4, 'quartet': 4, 'quadruple': 4,
-        #     # 'five': 5, 'quintet': 5, 'quintuple': 5
-        # }
+        self.num_map: dict[str, int] = {
+            # 'a': 1, 'an': 1, 'one': 1, 'single': 1,
+            'two': 2, 'couple': 2, 'pair': 2, 'both': 2,
+            'three': 3, 'trio': 3, 'triple': 3,
+            'four': 4, 'quartet': 4, 'quadruple': 4,
+            # 'five': 5, 'quintet': 5, 'quintuple': 5
+        }
 
     def _expand_concept(self, concept: str) -> list[str]:
 
-        return [concept]
+        cached = self._expand_cache.get(concept)
+        if cached is not None:
+            return cached
     
         count = 1
         remove_idx = -1
@@ -47,37 +52,44 @@ class CollateFn:
                 break
         
         if count > 4 or remove_idx == -1:
-            return [concept]
+            result = [concept]
+            self._expand_cache[concept] = result
+            return result
         
         tokens = [t.text for t in doc if t.i != remove_idx]
         concept = " ".join(tokens).strip()
         concept = concept.replace("  ", " ")
 
-        return [concept] * count
+        result = [concept] * count
+        self._expand_cache[concept] = result
+        return result
 
     def __call__(self, batch_data):
         raw_texts: list[str] = [item['text'] for item in batch_data]
-        
-        batch_concepts_list: list[Tensor] = []
-        batch_captions_list: list[Tensor] = []
-        
+
+        refined_concepts_batch: list[list[str]] = []
+        token_counts: list[int] = []
+
         for text in raw_texts:
-            concept_strings = self.parser(text)
-            
+            concept_strings = self._concept_cache.get(text)
+            if concept_strings is None:
+                concept_strings = self.parser(text)
+                self._concept_cache[text] = concept_strings
+
             refined_concepts = [concept_strings[0]] + [
-                self.templates[torch.randint(len(self.templates), (1,)).item()].format(ec)
+                self.templates[random.randrange(len(self.templates))].format(ec)
                 for c in concept_strings[1:]
                 for ec in self._expand_concept(c)
             ]
-            
-            # [N_concepts, 77]
-            sample_concepts_tensor: Tensor = clip.tokenize(refined_concepts, truncate=True)
-            batch_concepts_list.append(sample_concepts_tensor)
-            
-            # [77]
-            # 优化：TextParser 的第一个元素就是全文，直接复用即可，无需再次 tokenize
-            sample_caption_tensor: Tensor = sample_concepts_tensor[0]
-            batch_captions_list.append(sample_caption_tensor)
+            refined_concepts_batch.append(refined_concepts)
+            token_counts.append(len(refined_concepts))
+
+        flat_refined_concepts = [c for concepts in refined_concepts_batch for c in concepts]
+        flat_tokens: Tensor = clip.tokenize(flat_refined_concepts, truncate=True)
+        token_splits = flat_tokens.split(token_counts, dim=0)
+
+        batch_concepts_list: list[Tensor] = list(token_splits)
+        batch_captions_list: list[Tensor] = [tokens[0] for tokens in token_splits]
 
         batch_size = len(batch_data)
         
@@ -118,7 +130,7 @@ class GlobalCollateFn:
 if __name__ == '__main__':
     collate_fn = CollateFn()
     sample_texts = [
-        'there is a cat and two dogs in the park.',
+        'there is a choumie and two dabian in the park.',
         'a group of three people are standing together.',
         'an airplane is flying in the sky.',
         'the table has five apples and a banana on it.',

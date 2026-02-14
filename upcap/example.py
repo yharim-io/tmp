@@ -9,6 +9,9 @@ from upcap.engine.decode import image_to_text
 from upcap.engine.decode_batch import image_to_text_batch
 from utils.logger import logger
 
+GLOBAL_ATTN = False
+LOCAL_ATTN = False
+
 with logger('clip', 'loading'):
 	clip_model, preprocess = clip.load(
 		name=Cfg.clip_pretrained_path,
@@ -23,11 +26,11 @@ with logger('divider', 'loading'):
 
 with logger('upcap', 'loading'):
 	upcap_model = UpCap(
-		enable_concepts_global_buffer=False,
-		enable_concepts_local_buffer=True,
+		enable_concepts_global_buffer=GLOBAL_ATTN,
+		enable_concepts_local_buffer=LOCAL_ATTN,
 	)
 	static_dict = torch.load(
-		Cfg.root/'data/upcap/coco/001.pt',
+		Cfg.root/'data/upcap/coco/000.pt',
 		map_location='cpu',
 		weights_only=True
 	)
@@ -64,8 +67,8 @@ def parallel_test():
 			Cfg.root/f'data/example/{i}.jpg'
 			for i in range(1, 10)
 		],
-		global_attn=False,
-		local_attn=False,
+		global_attn=GLOBAL_ATTN,
+		local_attn=LOCAL_ATTN,
 	)
 	for t in texts:
 		print(t)

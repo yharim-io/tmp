@@ -4,7 +4,7 @@ from spacy.tokens import Doc
 class TextParser:
 	
 	def __init__(self):
-		self.nlp = spacy.load("en_core_web_sm")
+		self.nlp = spacy.load("en_core_web_sm", disable=["ner", "textcat", "lemmatizer"])
 		self.expletives = {'there'}
 	
 	def __call__(self, text: str) -> list[str]:

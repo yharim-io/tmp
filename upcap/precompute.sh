@@ -13,4 +13,4 @@ CUDA_VISIBLE_DEVICES=0,1,2 python -m torch.distributed.run \
 	--nproc_per_node=$NUM_GPUS_PER_NODE \
 	--nnodes=$NUM_NODES \
 	--node_rank $NODE_RANK \
-	upcap/compute_concepts.py
+	upcap/precompute.py

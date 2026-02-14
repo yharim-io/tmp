@@ -60,12 +60,14 @@ def train(
 		module=upcap_model,
 		device_ids=[Cfg.rank],
 		output_device=Cfg.rank,
-		find_unused_parameters=True,
+		# find_unused_parameters=True,
 		broadcast_buffers=False
 	)
 
 	clip_model, _ = clip.load(Cfg.clip_pretrained_path, device=Cfg.device, jit=False)
 	clip_model.eval()
+	for param in clip_model.parameters():
+		param.requires_grad_(False)
 	
 	with torch.no_grad():
 		zero_token = torch.zeros((1, 77), dtype=torch.long, device=Cfg.device)
@@ -89,6 +91,7 @@ def train(
 		num_workers=8,
 		pin_memory=True,
 		persistent_workers=True,
+		prefetch_factor=4,
 		collate_fn=collate_fn
 	)
 	
@@ -118,10 +121,12 @@ def train(
 			flat_tokens = torch.cat(text_concept_tokens_list, dim=0).to(Cfg.device, non_blocking=True)
 
 			optimizer.zero_grad(set_to_none=True)
-			with autocast(device_type=Cfg.device.type, dtype=torch.float16 if Cfg.device.type == 'cuda' else torch.bfloat16):
-				with torch.no_grad():
-					flat_feats = clip_model.encode_text(flat_tokens)
+			with autocast(device_type=Cfg.device.type, dtype=torch.float16):
+				with torch.inference_mode():
+					unique_tokens, inverse_indices = torch.unique(flat_tokens, dim=0, return_inverse=True)
+					flat_feats = clip_model.encode_text(unique_tokens)
 					flat_feats /= flat_feats.norm(dim=-1, keepdim=True)
+					flat_feats = flat_feats[inverse_indices]
 					feats_list = flat_feats.split(counts)
 				
 				batch_global_feat = []

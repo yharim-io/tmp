@@ -3,59 +3,68 @@ import torch.distributed as dist
 import clip
 from pathlib import Path
 import os
-import numpy as np
-from PIL import Image
-from clip.model import CLIP
+import sys
 from clip.simple_tokenizer import SimpleTokenizer
-from torchvision.transforms import Compose
-from torch.utils.data import Dataset as TorchDataset, DataLoader
 
 from upcap.config import Cfg
 from upcap.model.upcap import UpCap
-from upcap.model.divider import Divider
-from upcap.engine.decode_batch import image_tensor_to_text_batch
+from upcap.engine.decode_batch import decode_batch
 from utils.dataset import Dataset, CocoDataset, DType
 from utils.metric import MetricEvaluator
 from utils.dist import dist_startup
 from utils.logger import logger
-from utils.tool import tqdm
+from utils.tool import tqdm, java_style
 
+assert len(sys.argv) > 0, 'WID needed'
+WID = sys.argv[1]
 DATASPACE = Cfg.root/'data/upcap/coco'
-MODEL_WEIGHTS = DATASPACE/'009.pt'
-CACHE_PATH = DATASPACE/'run_model_009.pt'
+WEIGHTS_PATH = DATASPACE/f'{WID}.pt'
+CACHE_PATH = DATASPACE/f'run_model_{WID}.pt'
+LOG_PATH = DATASPACE/f'upcap.log'
 GLOBAL_ATTN = False
 LOCAL_ATTN = False
+USE_CACHE = False
 
-class _UniqueImageDataset(TorchDataset):
-	def __init__(self, unique_images: list[tuple[str, Path]], preprocess: Compose):
-		self.unique_images = unique_images
-		self.preprocess = preprocess
+@torch.inference_mode()
+def _build_metric_precomputed_tensors(
+	precomputed_concepts_path: Path,
+) -> dict:
+	payload = torch.load(precomputed_concepts_path, map_location='cpu', weights_only=True)
+	if 'image_ids' not in payload:
+		raise KeyError("Invalid precomputed file: missing key 'image_ids'")
+	if 'concepts' in payload:
+		concepts: torch.Tensor = payload['concepts']
+	elif 'text_concepts' in payload:
+		concepts = payload['text_concepts']
+	else:
+		raise KeyError("Invalid precomputed file: missing key 'concepts'")
 
-	def __len__(self) -> int:
-		return len(self.unique_images)
+	if concepts.ndim != 3 or concepts.shape[1] < 1:
+		raise ValueError(f'Invalid concepts shape: {tuple(concepts.shape)}')
 
-	def __getitem__(self, index: int):
-		image_id, image_path = self.unique_images[index]
-		image = Image.open(image_path).convert('RGB')
-		image_rgb = np.array(image)
-		image_tensor = self.preprocess(image)
-		return image_id, str(image_path), image_tensor, image_rgb
+	image_ids: list[str] = payload['image_ids']
+	image_feats = concepts[:, 0, :].contiguous().float().cpu()
+	if 'ref_text_feats' not in payload:
+		raise KeyError("Invalid precomputed file: missing key 'ref_text_feats'. Re-run upcap/precompute.py")
 
-def _collate_unique_images(batch):
-	batch_ids = [item[0] for item in batch]
-	batch_paths = [Path(item[1]) for item in batch]
-	image_tensor = torch.stack([item[2] for item in batch], dim=0)
-	image_rgbs = [item[3] for item in batch]
-	return batch_ids, batch_paths, image_tensor, image_rgbs
+	ref_text_feats = payload['ref_text_feats']
+	ref_text_feats_by_id = {
+		image_id: ref_text_feats[i]
+		for i, image_id in enumerate(image_ids)
+	}
+
+	return {
+		'image_ids': image_ids,
+		'image_feats': image_feats,
+		'ref_text_feats_by_id': ref_text_feats_by_id,
+	}
 
 def run_model(
 	dataset: Dataset,
-	clip_model: CLIP,
-	preprocess: Compose,
 	tokenizer: SimpleTokenizer,
 	upcap_model: UpCap,
-	divider: Divider,
 	cache_path: Path | None = None,
+	precomputed_concepts_path: Path | None = None,
 	use_cache: bool = True,
 	batch_size: int = 64
 ) -> tuple[dict, dict]:
@@ -91,38 +100,51 @@ def run_model(
 
 	world_size = dist.get_world_size()
 	local_images = unique_images[Cfg.rank::world_size]
+	if precomputed_concepts_path is None:
+		raise ValueError('precomputed_concepts_path must be provided')
+	if not precomputed_concepts_path.exists():
+		raise FileNotFoundError(f'Precomputed concepts not found: {precomputed_concepts_path}')
 
-	num_workers = min(8, max(1, (os.cpu_count() or 1) // max(1, world_size)))
-	pin_memory = Cfg.device.type == 'cuda'
+	payload = torch.load(precomputed_concepts_path, map_location='cpu', weights_only=True)
+	if 'image_ids' not in payload:
+		raise KeyError("Invalid precomputed file: missing key 'image_ids'")
+	if 'concepts' in payload:
+		concepts: torch.Tensor = payload['concepts']
+	elif 'text_concepts' in payload:
+		concepts = payload['text_concepts']
+	else:
+		raise KeyError("Invalid precomputed file: missing key 'concepts'")
 
-	loader_kwargs = {
-		'batch_size': batch_size,
-		'shuffle': False,
-		'num_workers': num_workers,
-		'pin_memory': pin_memory,
-		'collate_fn': _collate_unique_images,
+	image_ids: list[str] = payload['image_ids']
+	precomputed_map = {
+		image_id: concepts[i]
+		for i, image_id in enumerate(image_ids)
 	}
-	if num_workers > 0:
-		loader_kwargs['prefetch_factor'] = 2
-		loader_kwargs['persistent_workers'] = True
 
-	local_dataset = _UniqueImageDataset(local_images, preprocess)
-	local_loader = DataLoader(local_dataset, **loader_kwargs)
-
-	iterator = local_loader
 	if Cfg.is_master:
-		iterator = tqdm(local_loader, desc='Running Inference', total=len(local_loader))
+		print(f'Using precomputed concepts from {precomputed_concepts_path}')
+
+	batches = [local_images[i : i + batch_size] for i in range(0, len(local_images), batch_size)]
+	iterator = batches
+	if Cfg.is_master:
+		iterator = tqdm(batches, desc='Running Inference', total=len(batches))
 
 	with torch.inference_mode():
-		for batch_ids, batch_paths, image_tensor, image_rgbs in iterator:
-			batch_texts = image_tensor_to_text_batch(
-				clip_model=clip_model,
+		for batch in iterator:
+			batch_ids = [image_id for image_id, _ in batch]
+			missing_ids = [image_id for image_id in batch_ids if image_id not in precomputed_map]
+			if missing_ids:
+				raise KeyError(
+					f'Missing {len(missing_ids)} image ids in precomputed concepts, '
+					f'example: {missing_ids[0]}'
+				)
+			batch_concepts = torch.stack([precomputed_map[image_id] for image_id in batch_ids], dim=0)
+			batch_concepts = batch_concepts.float().to(Cfg.device, non_blocking=True)
+
+			batch_texts = decode_batch(
 				tokenizer=tokenizer,
 				upcap_model=upcap_model,
-				divider=divider,
-				image_tensor=image_tensor,
-				image_paths=batch_paths,
-				image_rgbs=image_rgbs,
+				text_concepts=batch_concepts,
 				global_attn=GLOBAL_ATTN,
 				local_attn=LOCAL_ATTN,
 			)
@@ -218,9 +240,6 @@ def main():
 		clip_model.eval()
 		tokenizer = SimpleTokenizer()
 	
-	with logger('divider', 'loading', Cfg.is_master):
-		divider = Divider()
-	
 	with logger('dataset', 'loading', Cfg.is_master):
 		dataset = CocoDataset(
 			annotations=Cfg.coco_val_ann,
@@ -238,7 +257,7 @@ def main():
 			enable_concepts_local_buffer=LOCAL_ATTN,
 		)
 		static_dict = torch.load(
-			MODEL_WEIGHTS,
+			WEIGHTS_PATH,
 			map_location=Cfg.device,
 			weights_only=True
 		)
@@ -254,18 +273,39 @@ def main():
 	with logger('upcap', 'running', Cfg.is_master):
 		ground_truths, predictions = run_model(
 			dataset,
-			clip_model, preprocess, tokenizer, upcap_model, divider,
+			tokenizer, upcap_model,
 			cache_path=CACHE_PATH,
-			use_cache=True
+			precomputed_concepts_path=Cfg.benchmark_precomputed_concepts_path,
+			use_cache=USE_CACHE
 		)
 		# ground_truths, predictions = merge_cache(dataset, CACHE_PATH)
 
 	if Cfg.is_master:
 		with logger('upcap', 'evaluating'):
-			metric_evaluator = MetricEvaluator(clip_model, preprocess, tokenizer)
-			scores = metric_evaluator.compute(ground_truths, predictions)
+			metric_evaluator = MetricEvaluator(
+				clip_model,
+				preprocess,
+				tokenizer,
+				enable_bleu=True,
+				enable_meteor=False,
+				enable_cider=True,
+				enable_spice=False,
+				enable_clip=True
+			)
+			precomputed_tensors = _build_metric_precomputed_tensors(
+				Cfg.benchmark_precomputed_concepts_path,
+			)
+			scores = metric_evaluator.compute(
+				ground_truths,
+				predictions,
+				precomputed_tensors=precomputed_tensors,
+			)
 
-		print(scores)
+		scores_fmt = WID + ': ' + java_style(scores)
+		print(scores_fmt)
+
+		with open(LOG_PATH, 'a', encoding='utf-8') as f:
+			f.write(scores_fmt + '\n\n')
 
 if __name__ == '__main__':
 	
